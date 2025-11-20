@@ -1,52 +1,48 @@
-import socket
-import time
 import requests
+import time
 
-import matplotlib
-matplotlib.use("TkAgg")
+# Cấu hình URL test (Sử dụng file 10MB của Tele2)
+URL_DOWNLOAD = "http://speedtest.tele2.net/10MB.zip"
+URL_PING = "http://google.com"
 
-
-def tcp_ping(host="8.8.8.8", port=80, repeat=5, timeout=2):
-    times = []
-
-    for _ in range(repeat):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(timeout)
+def do_ping():
+    """
+    Gửi request đến Google để đo độ trễ.
+    Trả về: số mili-giây (ms) hoặc None nếu lỗi.
+    """
+    try:
         start = time.time()
-        try:
-            s.connect((host, port))
-            end = time.time()
-            times.append((end - start) * 1000)
-        except:
-            times.append(None)
-        s.close()
+        requests.get(URL_PING, timeout=5)
+        end = time.time()
+        return round((end - start) * 1000, 2)
+    except Exception as e:
+        print(f"Lỗi Ping: {e}")
+        return None
 
-    valid = [t for t in times if t]
-    return sum(valid)/len(valid) if valid else None
-
-
-def download_speed(url="http://speed.hetzner.de/10MB.bin", size_bytes=3_000_000):
-    r = requests.get(url, stream=True)
-    start = time.time()
-
-    total = 0
-    for chunk in r.iter_content(1024 * 50):
-        total += len(chunk)
-        if total >= size_bytes:
-            break
-
-    end = time.time()
-    elapsed = end - start
-    mbps = (total * 8) / (elapsed * 1_000_000)
-    return mbps
-
-
-def upload_speed(url="https://httpbin.org/post", size_bytes=1_000_000):
-    data = b"x" * size_bytes
-    start = time.time()
-    requests.post(url, data=data)
-    end = time.time()
-
-    elapsed = end - start
-    mbps = (size_bytes * 8) / (elapsed * 1_000_000)
-    return mbps
+def do_download():
+    """
+    Tải file mẫu về để đo tốc độ.
+    Trả về: tốc độ (Mbps) hoặc None nếu lỗi.
+    """
+    try:
+        start_time = time.time()
+        # stream=True để không tải toàn bộ vào RAM ngay lập tức
+        response = requests.get(URL_DOWNLOAD, stream=True, timeout=20)
+        
+        downloaded_bytes = 0
+        
+        # Đọc dữ liệu theo từng khối (chunk) 1KB
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                downloaded_bytes += len(chunk)
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        
+        # Công thức: (Bytes * 8) / (Giây * 1,000,000) = Mbps
+        speed_mbps = (downloaded_bytes * 8) / (duration * 1_000_000)
+        
+        return round(speed_mbps, 2)
+    except Exception as e:
+        print(f"Lỗi Download: {e}")
+        return None
