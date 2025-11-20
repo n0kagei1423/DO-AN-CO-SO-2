@@ -2,7 +2,7 @@ import requests
 import time
 
 # Cấu hình URL test (Sử dụng file 10MB của Tele2)
-URL_DOWNLOAD = "http://speedtest.tele2.net/10MB.zip"
+URL_DOWNLOAD = "https://speed.cloudflare.com/__down?bytes=50000000"
 URL_PING = "http://google.com"
 
 def do_ping():
