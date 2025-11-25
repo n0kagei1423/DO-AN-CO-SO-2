@@ -1,13 +1,7 @@
-import tkinter as tk
+import core
 from ui import UngDungSpeedTest
 
-# Đây là điểm bắt đầu của chương trình
+# Điểm bắt đầu chương trình
 if __name__ == "__main__":
-    # Tạo cửa sổ gốc
-    root = tk.Tk()
-    
-    # Nạp ứng dụng vào cửa sổ gốc
-    app = UngDungSpeedTest(root)
-    
-    # Giữ cửa sổ hiển thị
-    root.mainloop()
+    app = UngDungSpeedTest()
+    app.mainloop()

@@ -1,126 +1,74 @@
 import requests
 import threading
 import time
-import socket # <--- Thư viện mới để đo Ping chuẩn hơn
+import socket
 import os
-import psutil
 
-# Link Cloudflare (Server quốc tế tốc độ cao)
+# --- CẤU HÌNH ---
 URL_DOWNLOAD = "https://speed.cloudflare.com/__down?bytes=50000000"
 URL_UPLOAD = "https://speed.cloudflare.com/__up"
-# Dùng Google DNS để đo Ping TCP (Rất ổn định)
-PING_HOST = "8.8.8.8"
-PING_PORT = 53
-
-# API thông tin
+SERVERS_VIETNAM = [("vnexpress.net", 443), ("dantri.com.vn", 443)]
 URL_IP_INFO = "http://ip-api.com/json/"
 
 SO_LUONG_LUONG = 4
 THOI_GIAN_TEST = 10 
 
+# BIẾN TOÀN CỤC ĐỂ QUẢN LÝ VIỆC HỦY
+core_hien_tai = None  # Lưu đối tượng đang chạy đo
+co_lenh_huy = False   # Cờ báo hiệu lệnh hủy
+
+# --- CÁC HÀM HỖ TRỢ ---
 def lay_thong_tin_ip():
     try:
         response = requests.get(URL_IP_INFO, timeout=3)
         data = response.json()
-        return {
-            "ip": data.get('query', '---'),
-            "city": data.get('city', '---'),
-            "country": data.get('country', '---'),
-            "isp": data.get('isp', '---')
-        }
+        return {"ip": data.get('query'), "city": data.get('city'), "country": data.get('country'), "isp": data.get('isp')}
     except:
         return None
 
-# --- CẤU HÌNH PING MỚI ---
-# Danh sách các server tại Việt Nam để đo ping thấp nhất
-# Port 443 là port HTTPS, luôn mở và phản hồi nhanh
-SERVERS_VIETNAM = [
-    ("vnexpress.net", 443),
-    ("dantri.com.vn", 443),
-    ("zingnews.vn", 443)
-]
+def kich_hoat_lenh_huy():
+    """Hàm này được gọi từ Giao diện khi bấm nút Hủy"""
+    global co_lenh_huy, core_hien_tai
+    co_lenh_huy = True
+    if core_hien_tai:
+        core_hien_tai.dung_lai_ngay()
 
-def ping_tcp(host, port):
-    """Hàm đo 1 lần kết nối"""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(1.0) # Timeout ngắn thôi
-        
-        start = time.time()
-        s.connect((host, port))
-        end = time.time()
-        
-        s.close()
-        return (end - start) * 1000
-    except:
-        return 9999 # Trả về số lớn nếu lỗi
+def reset_trang_thai():
+    """Reset trạng thái trước khi đo mới"""
+    global co_lenh_huy, core_hien_tai
+    co_lenh_huy = False
+    core_hien_tai = None
 
-def do_ping():
-    """
-    Chiến thuật mới: 
-    1. Ping tới server Việt Nam.
-    2. Ping 3 lần, lấy kết quả NHỎ NHẤT (Min Ping).
-    """
-    ket_qua_tot_nhat = 9999
-    
-    # Thử server đầu tiên trong danh sách (VnExpress)
-    host, port = SERVERS_VIETNAM[0]
-    
-    # Ping 3 lần liên tiếp (Warm-up)
-    ds_ping = []
-    for _ in range(3):
-        p = ping_tcp(host, port)
-        ds_ping.append(p)
-        time.sleep(0.05) # Nghỉ cực ngắn giữa các lần bắn
-        
-    # Lấy giá trị thấp nhất (Đây là cách Speedtest làm)
-    # Vì ping cao có thể do nghẽn tức thời, ping thấp nhất mới là giới hạn vật lý
-    if ds_ping:
-        min_ping = min(ds_ping)
-        if min_ping < 9999:
-            return round(min_ping, 0) # Không lấy số lẻ
-            
-    return None
-
-# --- CLASS XỬ LÝ TỐC ĐỘ (Up & Down) ---
+# --- CLASS XỬ LÝ CHÍNH ---
 class BoXuLyTocDo:
     def __init__(self, mode="download"):
         self.tong_bytes = 0
         self.dang_chay = False
         self.lock = threading.Lock()
         self.mode = mode
-        
-        # Tối ưu Upload: Tạo sẵn cục dữ liệu to (1MB) để đỡ tốn CPU tạo đi tạo lại
         if mode == "upload":
-            # Tạo 1MB dữ liệu ngẫu nhiên
             self.data_upload = os.urandom(1024 * 1024) 
 
+    def dung_lai_ngay(self):
+        """Hàm phanh gấp"""
+        self.dang_chay = False
+
     def worker(self):
-        # TẠO SESSION: Giữ kết nối sống (Keep-Alive), tăng tốc độ Upload cực nhiều
         session = requests.Session()
-        
         start_time = time.time()
         while self.dang_chay and (time.time() - start_time < THOI_GIAN_TEST):
             try:
                 if self.mode == "download":
-                    # DOWNLOAD
                     with session.get(URL_DOWNLOAD, stream=True, timeout=5) as response:
-                        for chunk in response.iter_content(chunk_size=102400): # Tăng chunk lên 100KB
-                            if not self.dang_chay or (time.time() - start_time > THOI_GIAN_TEST): return
+                        for chunk in response.iter_content(chunk_size=102400):
+                            if not self.dang_chay: return # Ngắt ngay
                             if chunk:
                                 with self.lock: self.tong_bytes += len(chunk)
-                                
                 else:
-                    # UPLOAD
-                    # post dữ liệu liên tục qua session đã mở
                     session.post(URL_UPLOAD, data=self.data_upload, timeout=5)
-                    with self.lock:
-                        self.tong_bytes += len(self.data_upload)
-                        
-            except Exception:
+                    with self.lock: self.tong_bytes += len(self.data_upload)
+            except:
                 time.sleep(0.1)
-        
-        # Đóng session khi xong
         session.close()
 
     def bat_dau(self, callback_update=None):
@@ -128,6 +76,7 @@ class BoXuLyTocDo:
         self.dang_chay = True
         danh_sach_luong = []
 
+        # Chạy worker
         for i in range(SO_LUONG_LUONG):
             t = threading.Thread(target=self.worker)
             t.start()
@@ -138,91 +87,96 @@ class BoXuLyTocDo:
         last_bytes = 0
         current_display_speed = 0
 
+        # Vòng lặp chính
         while time.time() - start_time < THOI_GIAN_TEST:
+            # Nếu nhận lệnh hủy từ bên ngoài
+            if not self.dang_chay:
+                break
+
             time.sleep(0.25)
-            
             now = time.time()
             delta_time = now - last_time
             delta_bytes = self.tong_bytes - last_bytes
             
             if delta_time > 0:
                 instant_speed = (delta_bytes * 8) / (delta_time * 1_000_000)
-                
-                # Logic làm mượt hiển thị
-                if current_display_speed == 0:
-                    current_display_speed = instant_speed
-                else:
-                    current_display_speed = (current_display_speed * 0.7) + (instant_speed * 0.3)
-
-                if callback_update:
-                    callback_update(round(current_display_speed, 2))
+                if current_display_speed == 0: current_display_speed = instant_speed
+                else: current_display_speed = (current_display_speed * 0.7) + (instant_speed * 0.3)
+                if callback_update: callback_update(round(current_display_speed, 2))
             
             last_time = now
             last_bytes = self.tong_bytes
 
+        # Dọn dẹp
         self.dang_chay = False
         for t in danh_sach_luong:
             t.join()
 
+        # Nếu bị hủy giữa chừng -> Trả về None
+        if co_lenh_huy:
+            return None
+
         final_speed = (self.tong_bytes * 8) / ((time.time() - start_time) * 1_000_000)
         return round(final_speed, 2)
 
+# --- WRAPPER FUNCTIONS ---
+def ping_tcp(host, port):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        start = time.time()
+        s.connect((host, port))
+        end = time.time()
+        s.close()
+        return (end - start) * 1000
+    except:
+        return 9999
+
+def lay_ping():
+    global co_lenh_huy
+    ket_qua_tot_nhat = 9999
+    host, port = SERVERS_VIETNAM[0]
+    for _ in range(3):
+        if co_lenh_huy: return None # Kiểm tra lệnh hủy giữa các lần ping
+        p = ping_tcp(host, port)
+        if p < ket_qua_tot_nhat: ket_qua_tot_nhat = p
+        time.sleep(0.1)
+    return round(ket_qua_tot_nhat, 0) if ket_qua_tot_nhat < 9999 else None
+
+def do_download(callback_func=None):
+    global core_hien_tai
+    core_hien_tai = BoXuLyTocDo(mode="download")
+    return core_hien_tai.bat_dau(callback_update=callback_func)
+
+def do_upload(callback_func=None):
+    global core_hien_tai
+    core_hien_tai = BoXuLyTocDo(mode="upload")
+    return core_hien_tai.bat_dau(callback_update=callback_func)
+
+# --- MONITOR SYSTEM (GIỮ NGUYÊN) ---
 class GiamSatHeThong:
     def __init__(self):
         self.dang_chay = False
-    
     def bat_dau_giam_sat(self, callback_update):
         self.dang_chay = True
-        
-        # Lấy mốc thời gian đầu
         last_received = psutil.net_io_counters().bytes_recv
         last_sent = psutil.net_io_counters().bytes_sent
-        
         while self.dang_chay:
-            time.sleep(1) # Cập nhật mỗi 1 giây
-            
-            # Lấy thông tin hiện tại
+            time.sleep(1)
             counters = psutil.net_io_counters()
-            now_received = counters.bytes_recv
-            now_sent = counters.bytes_sent
-            
-            # Tính lượng thay đổi (Bytes)
-            new_received = now_received - last_received
-            new_sent = now_sent - last_sent
-            
-            # Chuyển đổi sang MB (như logic của bạn)
-            mb_down = new_received / 1024 / 1024
-            mb_up = new_sent / 1024 / 1024
-            
-            # Gọi ngược về giao diện để hiển thị
+            new_received = counters.bytes_recv - last_received
+            new_sent = counters.bytes_sent - last_sent
             if callback_update:
-                callback_update(mb_down, mb_up)
-            
-            # Cập nhật mốc cũ
-            last_received = now_received
-            last_sent = now_sent
-
+                callback_update(new_received / 1024 / 1024, new_sent / 1024 / 1024)
+            last_received = counters.bytes_recv
+            last_sent = counters.bytes_sent
     def dung_giam_sat(self):
         self.dang_chay = False
 
-
-# --- WRAPPER FUNCTIONS ---
-# Hàm ping giờ gọi hàm do_ping mới ở trên
-def lay_ping():
-    return do_ping()
-
-def do_download(callback_func=None):
-    core = BoXuLyTocDo(mode="download")
-    return core.bat_dau(callback_update=callback_func)
-
-def do_upload(callback_func=None):
-    core = BoXuLyTocDo(mode="upload")
-    return core.bat_dau(callback_update=callback_func)
-
+import psutil # Import ở đây hoặc đầu file
 def chay_giam_sat_he_thong(callback):
     monitor = GiamSatHeThong()
-    # Chạy trong luồng riêng để không đơ máy
     t = threading.Thread(target=monitor.bat_dau_giam_sat, args=(callback,))
-    t.daemon = True # Tự động tắt khi tắt app chính
+    t.daemon = True
     t.start()
     return monitor
