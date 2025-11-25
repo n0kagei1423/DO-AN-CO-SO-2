@@ -3,6 +3,7 @@ import threading
 import time
 import socket # <--- Thư viện mới để đo Ping chuẩn hơn
 import os
+import psutil
 
 # Link Cloudflare (Server quốc tế tốc độ cao)
 URL_DOWNLOAD = "https://speed.cloudflare.com/__down?bytes=50000000"
@@ -166,6 +167,45 @@ class BoXuLyTocDo:
         final_speed = (self.tong_bytes * 8) / ((time.time() - start_time) * 1_000_000)
         return round(final_speed, 2)
 
+class GiamSatHeThong:
+    def __init__(self):
+        self.dang_chay = False
+    
+    def bat_dau_giam_sat(self, callback_update):
+        self.dang_chay = True
+        
+        # Lấy mốc thời gian đầu
+        last_received = psutil.net_io_counters().bytes_recv
+        last_sent = psutil.net_io_counters().bytes_sent
+        
+        while self.dang_chay:
+            time.sleep(1) # Cập nhật mỗi 1 giây
+            
+            # Lấy thông tin hiện tại
+            counters = psutil.net_io_counters()
+            now_received = counters.bytes_recv
+            now_sent = counters.bytes_sent
+            
+            # Tính lượng thay đổi (Bytes)
+            new_received = now_received - last_received
+            new_sent = now_sent - last_sent
+            
+            # Chuyển đổi sang MB (như logic của bạn)
+            mb_down = new_received / 1024 / 1024
+            mb_up = new_sent / 1024 / 1024
+            
+            # Gọi ngược về giao diện để hiển thị
+            if callback_update:
+                callback_update(mb_down, mb_up)
+            
+            # Cập nhật mốc cũ
+            last_received = now_received
+            last_sent = now_sent
+
+    def dung_giam_sat(self):
+        self.dang_chay = False
+
+
 # --- WRAPPER FUNCTIONS ---
 # Hàm ping giờ gọi hàm do_ping mới ở trên
 def lay_ping():
@@ -178,3 +218,11 @@ def do_download(callback_func=None):
 def do_upload(callback_func=None):
     core = BoXuLyTocDo(mode="upload")
     return core.bat_dau(callback_update=callback_func)
+
+def chay_giam_sat_he_thong(callback):
+    monitor = GiamSatHeThong()
+    # Chạy trong luồng riêng để không đơ máy
+    t = threading.Thread(target=monitor.bat_dau_giam_sat, args=(callback,))
+    t.daemon = True # Tự động tắt khi tắt app chính
+    t.start()
+    return monitor
