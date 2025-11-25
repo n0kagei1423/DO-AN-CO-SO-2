@@ -1,7 +1,16 @@
-import core
-from ui import UngDungSpeedTest
+import sys
+from PyQt6.QtWidgets import QApplication
+from ui import MainWindow
 
-# Điểm bắt đầu chương trình
 if __name__ == "__main__":
-    app = UngDungSpeedTest()
-    app.mainloop()
+    app = QApplication(sys.argv)
+    
+    # Thiết lập Font mặc định cho toàn app
+    font = app.font()
+    font.setFamily("Segoe UI")
+    app.setFont(font)
+    
+    window = MainWindow()
+    window.show()
+    
+    sys.exit(app.exec())

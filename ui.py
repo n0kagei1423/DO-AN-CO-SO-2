@@ -1,202 +1,312 @@
-import customtkinter as ctk
+import sys
 import threading
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                             QHBoxLayout, QLabel, QPushButton, QFrame, QProgressBar)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QFont, QCursor
+
 import core as logic_mang
 
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
+# --- STYLE SHEET ---
+STYLESHEET = """
+QMainWindow { background-color: #1e1e1e; }
+QLabel { color: #ffffff; font-family: 'Segoe UI', sans-serif; }
+QFrame#Card { background-color: #2d2d2d; border-radius: 15px; border: 1px solid #3d3d3d; }
+QFrame#CardPing { border-left: 5px solid #FF9800; }
+QFrame#CardDown { border-left: 5px solid #2196F3; }
+QFrame#CardUp { border-left: 5px solid #9C27B0; }
 
-class UngDungSpeedTest(ctk.CTk):
+QPushButton#BtnStart {
+    background-color: #00C853; color: white; border-radius: 25px; font-weight: bold; font-size: 16px;
+}
+QPushButton#BtnStart:hover { background-color: #00E676; }
+QPushButton#BtnStart:disabled { background-color: #555555; }
+
+QPushButton#BtnCancel {
+    background-color: #D32F2F; color: white; border-radius: 25px; font-weight: bold; font-size: 16px;
+}
+QPushButton#BtnCancel:hover { background-color: #EF5350; }
+
+QProgressBar {
+    border: 1px solid #333;
+    background-color: #2d2d2d;
+    border-radius: 5px;
+    height: 10px;
+    text-align: center;
+}
+QProgressBar::chunk {
+    background-color: #2196F3;
+    border-radius: 5px;
+}
+"""
+
+class MainWindow(QMainWindow):
+    # --- KHAI BÁO SIGNALS ---
+    sig_update_ping = pyqtSignal(str)
+    sig_update_down = pyqtSignal(float)
+    sig_update_up = pyqtSignal(float)
+    sig_update_sys_monitor = pyqtSignal(float, float)
+    sig_finish = pyqtSignal()
+    sig_info = pyqtSignal(dict)
+    
+    # QUAN TRỌNG: Signal riêng cho thanh progress
+    sig_update_progress = pyqtSignal(int)
+
     def __init__(self):
         super().__init__()
-        self.title("SpeedTest Pro Ultimate")
-        self.geometry("500x700")
-        self.resizable(False, False)
+        self.setWindowTitle("PyQt6 SpeedTest Pro")
+        self.setFixedSize(450, 700)
         
-        # Biến trạng thái
+        self.is_running = False
         self.is_monitoring = False
         self.monitor_core = None
-        self.dang_do_toc_do = False # Biến kiểm soát xem có đang chạy test hay không
-        
+
         self.setup_ui()
-        threading.Thread(target=self.lay_thong_tin_nen).start()
+        self.setup_connections()
+        self.setStyleSheet(STYLESHEET)
+        
+        threading.Thread(target=self.thread_lay_thong_tin, daemon=True).start()
 
     def setup_ui(self):
-        # ... (PHẦN HEADER & BODY & CARD GIỮ NGUYÊN) ...
-        # (Để tiết kiệm không gian trả lời, tôi chỉ viết lại phần Nút bấm, 
-        # bạn giữ nguyên các phần tạo Label ISP, Ping, Down, Up, Footer nhé)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # 1. HEADER
-        self.frame_info = ctk.CTkFrame(self, corner_radius=15)
-        self.frame_info.pack(fill="x", padx=20, pady=20)
-        self.lbl_isp = ctk.CTkLabel(self.frame_info, text="Đang tải ISP...", font=("Roboto", 16, "bold"), text_color="#4facfe")
-        self.lbl_isp.pack(pady=(15, 0))
-        self.lbl_ip_loc = ctk.CTkLabel(self.frame_info, text="IP: --- | Location: ---", font=("Roboto", 12))
-        self.lbl_ip_loc.pack(pady=(0, 15))
+        # 1. Header
+        self.lbl_isp = QLabel("Đang tải ISP...")
+        self.lbl_isp.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        self.lbl_isp.setStyleSheet("color: #4facfe;")
+        self.lbl_isp.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(self.lbl_isp)
 
-        # 2. BODY
-        self.frame_main = ctk.CTkFrame(self, fg_color="transparent")
-        self.frame_main.pack(fill="both", expand=True, padx=20)
-        
+        self.lbl_ip_loc = QLabel("IP: --- | Location: ---")
+        self.lbl_ip_loc.setStyleSheet("color: #aaaaaa;")
+        self.lbl_ip_loc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(self.lbl_ip_loc)
+
+        # 2. Cards
         # Ping
-        self.card_ping = ctk.CTkFrame(self.frame_main, fg_color="#333333", corner_radius=10)
-        self.card_ping.pack(fill="x", pady=5)
-        ctk.CTkLabel(self.card_ping, text="PING", font=("Arial", 10, "bold"), text_color="gray").pack(side="left", padx=20, pady=10)
-        self.lbl_ping_val = ctk.CTkLabel(self.card_ping, text="--- ms", font=("Roboto", 14, "bold"), text_color="#FF9800")
-        self.lbl_ping_val.pack(side="right", padx=20)
+        self.card_ping = QFrame()
+        self.card_ping.setObjectName("Card")
+        self.card_ping.setProperty("class", "CardPing") 
+        self.card_ping.setObjectName("CardPing")
+        l_ping = QHBoxLayout(self.card_ping)
+        l_ping.addWidget(QLabel("PING"))
+        self.val_ping = QLabel("--- ms")
+        self.val_ping.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        self.val_ping.setStyleSheet("color: #FF9800;")
+        self.val_ping.setAlignment(Qt.AlignmentFlag.AlignRight)
+        l_ping.addWidget(self.val_ping)
+        main_layout.addWidget(self.card_ping)
 
-        # Download
-        self.card_down = ctk.CTkFrame(self.frame_main, corner_radius=15, border_width=2, border_color="#2196F3")
-        self.card_down.pack(fill="x", pady=10, ipady=10)
-        ctk.CTkLabel(self.card_down, text="DOWNLOAD", font=("Arial", 12, "bold"), text_color="#2196F3").pack(pady=(10,0))
-        self.lbl_down = ctk.CTkLabel(self.card_down, text="---", font=("Roboto", 48, "bold"), text_color="white")
-        self.lbl_down.pack()
-        ctk.CTkLabel(self.card_down, text="Mbps", text_color="gray").pack(pady=(0,10))
+        # Down
+        self.card_down = QFrame()
+        self.card_down.setObjectName("CardDown")
+        l_down = QVBoxLayout(self.card_down)
+        lbl_d_title = QLabel("DOWNLOAD")
+        lbl_d_title.setStyleSheet("color: #2196F3; font-weight: bold;")
+        l_down.addWidget(lbl_d_title, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self.val_down = QLabel("---")
+        self.val_down.setFont(QFont("Segoe UI", 40, QFont.Weight.Bold))
+        self.val_down.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        l_down.addWidget(self.val_down)
+        l_down.addWidget(QLabel("Mbps", alignment=Qt.AlignmentFlag.AlignHCenter))
+        main_layout.addWidget(self.card_down)
 
-        # Upload
-        self.card_up = ctk.CTkFrame(self.frame_main, corner_radius=15, border_width=2, border_color="#9C27B0")
-        self.card_up.pack(fill="x", pady=5, ipady=5)
-        ctk.CTkLabel(self.card_up, text="UPLOAD", font=("Arial", 12, "bold"), text_color="#9C27B0").pack(pady=(5,0))
-        self.lbl_up = ctk.CTkLabel(self.card_up, text="---", font=("Roboto", 36, "bold"), text_color="white")
-        self.lbl_up.pack()
-        ctk.CTkLabel(self.card_up, text="Mbps", text_color="gray").pack(pady=(0,5))
+        # Up
+        self.card_up = QFrame()
+        self.card_up.setObjectName("CardUp")
+        l_up = QVBoxLayout(self.card_up)
+        lbl_u_title = QLabel("UPLOAD")
+        lbl_u_title.setStyleSheet("color: #9C27B0; font-weight: bold;")
+        l_up.addWidget(lbl_u_title, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self.val_up = QLabel("---")
+        self.val_up.setFont(QFont("Segoe UI", 32, QFont.Weight.Bold))
+        self.val_up.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        l_up.addWidget(self.val_up)
+        l_up.addWidget(QLabel("Mbps", alignment=Qt.AlignmentFlag.AlignHCenter))
+        main_layout.addWidget(self.card_up)
 
-        # Progress
-        self.progress_bar = ctk.CTkProgressBar(self, height=10, corner_radius=5)
-        self.progress_bar.pack(fill="x", padx=40, pady=(20, 10))
-        self.progress_bar.set(0)
+        # 3. Progress Bar
+        self.progress = QProgressBar()
+        self.progress.setTextVisible(False)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        main_layout.addWidget(self.progress)
+
+        self.lbl_status = QLabel("Sẵn sàng")
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_status.setStyleSheet("color: gray; font-style: italic;")
+        main_layout.addWidget(self.lbl_status)
+
+        # 4. Button
+        self.btn_action = QPushButton("BẮT ĐẦU ĐO")
+        self.btn_action.setObjectName("BtnStart")
+        self.btn_action.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_action.setFixedHeight(50)
+        self.btn_action.clicked.connect(self.on_btn_action_click)
+        main_layout.addWidget(self.btn_action)
+
+        main_layout.addStretch()
+
+        # 5. Footer
+        self.frame_footer = QFrame()
+        self.frame_footer.setStyleSheet("background-color: #151515; border-radius: 10px;")
+        l_footer = QVBoxLayout(self.frame_footer)
+        h_foot = QHBoxLayout()
+        h_foot.addWidget(QLabel("GIÁM SÁT HỆ THỐNG", styleSheet="color: gray; font-weight: bold; font-size: 10px;"))
+        self.btn_monitor = QPushButton("BẬT")
+        self.btn_monitor.setCheckable(True)
+        self.btn_monitor.setFixedSize(50, 20)
+        self.btn_monitor.setStyleSheet("QPushButton { background-color: #555; border-radius: 10px; color: white; font-size: 10px;} QPushButton:checked { background-color: #E91E63; }")
+        self.btn_monitor.clicked.connect(self.toggle_monitor)
+        h_foot.addWidget(self.btn_monitor, alignment=Qt.AlignmentFlag.AlignRight)
+        l_footer.addLayout(h_foot)
+        h_sys = QHBoxLayout()
+        self.sys_down = QLabel("↓ 0.00 MB/s")
+        self.sys_down.setStyleSheet("color: #4CAF50; font-family: Consolas; font-size: 14px;")
+        self.sys_up = QLabel("↑ 0.00 MB/s")
+        self.sys_up.setStyleSheet("color: #FFC107; font-family: Consolas; font-size: 14px;")
+        h_sys.addWidget(self.sys_down)
+        h_sys.addStretch()
+        h_sys.addWidget(self.sys_up)
+        l_footer.addLayout(h_sys)
+        main_layout.addWidget(self.frame_footer)
+
+    def setup_connections(self):
+        self.sig_update_ping.connect(self.val_ping.setText)
+        self.sig_update_down.connect(lambda v: self.val_down.setText(f"{v}"))
+        self.sig_update_up.connect(lambda v: self.val_up.setText(f"{v}"))
+        self.sig_finish.connect(self.on_process_finished)
+        self.sig_info.connect(self.update_info_ui)
+        self.sig_update_sys_monitor.connect(self.update_sys_ui)
         
-        self.lbl_status = ctk.CTkLabel(self, text="Sẵn sàng", font=("Arial", 12, "italic"), text_color="gray")
-        self.lbl_status.pack(pady=5)
+        # KẾT NỐI QUAN TRỌNG NHẤT: Signal -> Slot của Progress Bar
+        self.sig_update_progress.connect(self.progress.setValue)
 
-        # --- NÚT BẤM (QUAN TRỌNG) ---
-        # Chúng ta dùng 1 nút duy nhất nhưng đổi màu và chức năng
-        self.btn_action = ctk.CTkButton(self, text="BẮT ĐẦU ĐO", font=("Roboto", 16, "bold"), 
-                                       height=50, corner_radius=25, 
-                                       fg_color="#00C853", hover_color="#009624",
-                                       command=self.xu_ly_nut_bat_dau)
-        self.btn_action.pack(padx=20, pady=10, fill="x")
-
-        # Footer Monitor (Giữ nguyên)
-        self.frame_footer = ctk.CTkFrame(self, fg_color="#1a1a1a", corner_radius=0)
-        self.frame_footer.pack(side="bottom", fill="x", ipady=10)
-        ctk.CTkLabel(self.frame_footer, text="GIÁM SÁT HỆ THỐNG", font=("Arial", 10, "bold"), text_color="gray").pack(pady=5)
-        self.frame_footer_grid = ctk.CTkFrame(self.frame_footer, fg_color="transparent")
-        self.frame_footer_grid.pack(fill="x", padx=20)
-        self.lbl_sys_down = ctk.CTkLabel(self.frame_footer_grid, text="↓ 0.00 MB/s", font=("Consolas", 14), text_color="#4CAF50")
-        self.lbl_sys_down.pack(side="left", padx=20)
-        self.switch_monitor = ctk.CTkSwitch(self.frame_footer_grid, text="BẬT", command=self.xy_ly_switch_monitor, progress_color="#E91E63")
-        self.switch_monitor.pack(side="right")
-        self.lbl_sys_up = ctk.CTkLabel(self.frame_footer_grid, text="↑ 0.00 MB/s", font=("Consolas", 14), text_color="#FFC107")
-        self.lbl_sys_up.pack(side="right", padx=20)
-
-    # --- LOGIC NÚT BẤM 2 CHIỀU ---
-    def xu_ly_nut_bat_dau(self):
-        if not self.dang_do_toc_do:
-            # 1. NẾU CHƯA CHẠY -> BẮT ĐẦU CHẠY
-            self.dang_do_toc_do = True
-            
-            # Đổi giao diện sang trạng thái "Đang chạy"
-            self.btn_action.configure(text="HỦY BỎ", fg_color="#D32F2F", hover_color="#B71C1C")
-            
-            # Reset số liệu
-            self.lbl_down.configure(text="---")
-            self.lbl_up.configure(text="---")
-            self.lbl_ping_val.configure(text="--- ms")
-            self.progress_bar.set(0)
-            
-            # Reset logic
-            logic_mang.reset_trang_thai()
-            
-            # Chạy luồng đo
-            threading.Thread(target=self.luong_do_toc_do).start()
-            
+    def on_btn_action_click(self):
+        if not self.is_running:
+            self.start_test()
         else:
-            # 2. NẾU ĐANG CHẠY -> BẤM THÌ HỦY
-            self.lbl_status.configure(text="Đang hủy...", text_color="red")
-            self.btn_action.configure(state="disabled") # Khóa nút để tránh spam
-            
-            # Gửi lệnh hủy sang logic
-            logic_mang.kich_hoat_lenh_huy()
+            self.cancel_test()
 
-    def luong_do_toc_do(self):
-        # --- QUÁ TRÌNH ĐO ---
+    def start_test(self):
+        self.is_running = True
+        self.btn_action.setText("HỦY BỎ")
+        self.btn_action.setObjectName("BtnCancel")
+        self.btn_action.setStyleSheet(STYLESHEET)
+        self.val_ping.setText("--- ms")
+        self.val_down.setText("---")
+        self.val_up.setText("---")
+        self.progress.setValue(0)
+        logic_mang.reset_trang_thai()
+        threading.Thread(target=self.worker_speedtest, daemon=True).start()
+
+    def cancel_test(self):
+        self.lbl_status.setText("Đang hủy...")
+        self.btn_action.setEnabled(False)
+        logic_mang.kich_hoat_lenh_huy()
+
+    def on_process_finished(self):
+        self.is_running = False
+        self.btn_action.setText("BẮT ĐẦU ĐO")
+        self.btn_action.setObjectName("BtnStart")
+        self.btn_action.setStyleSheet(STYLESHEET)
+        self.btn_action.setEnabled(True)
+        if logic_mang.co_lenh_huy:
+            self.lbl_status.setText("ĐÃ HỦY ĐO")
+            self.lbl_status.setStyleSheet("color: #EF5350; font-style: italic;")
+            self.progress.setValue(0)
+        else:
+            self.lbl_status.setText("HOÀN TẤT!")
+            self.lbl_status.setStyleSheet("color: #00C853; font-weight: bold;")
+            self.progress.setValue(100)
+
+    # --- WORKER THREAD ---
+    def worker_speedtest(self):
+        # 0. Giai đoạn Ping (0 -> 15%)
+        if not self.check_continue(): return
+        self.set_status_safe("Đang đo Ping...", "white")
         
-        # 1. Ping
-        if not self.kiem_tra_huy(): return
-        self.lbl_status.configure(text="Đang đo độ trễ (Ping)...", text_color="white")
+        self.sig_update_progress.emit(5) # Bắn tín hiệu cập nhật
         ping = logic_mang.lay_ping()
-        
-        if ping is not None:
-            self.lbl_ping_val.configure(text=f"{ping} ms")
-        self.progress_bar.set(0.2)
+        if ping: self.sig_update_ping.emit(f"{ping} ms")
+        self.sig_update_progress.emit(15)
 
-        # 2. Download
-        if not self.kiem_tra_huy(): return
-        self.lbl_status.configure(text="Đang đo Download...", text_color="#2196F3")
-        final_down = logic_mang.do_download(callback_func=self.cap_nhat_down)
+        # 1. Giai đoạn Download (15% -> 55%)
+        if not self.check_continue(): return
+        self.set_status_safe("Đang đo Download...", "#2196F3")
         
-        if final_down is not None:
-             self.lbl_down.configure(text=f"{final_down}")
-        self.progress_bar.set(0.5)
+        current_prog_down = 15
+        def cb_down(val):
+            nonlocal current_prog_down
+            self.sig_update_down.emit(val)
+            # Tăng dần progress bar
+            if current_prog_down < 55:
+                current_prog_down += 1
+                self.sig_update_progress.emit(current_prog_down) # Bắn tín hiệu
+        
+        final_down = logic_mang.do_download(callback_func=cb_down)
+        if final_down: self.sig_update_down.emit(final_down)
+        self.sig_update_progress.emit(55)
 
-        # 3. Upload
-        if not self.kiem_tra_huy(): return
-        self.lbl_status.configure(text="Đang đo Upload...", text_color="#9C27B0")
-        final_up = logic_mang.do_upload(callback_func=self.cap_nhat_up)
+        # 2. Giai đoạn Upload (55% -> 95%)
+        if not self.check_continue(): return
+        self.set_status_safe("Đang đo Upload...", "#9C27B0")
         
-        if final_up is not None:
-            self.lbl_up.configure(text=f"{final_up}")
-        self.progress_bar.set(1.0)
+        current_prog_up = 55
+        def cb_up(val):
+            nonlocal current_prog_up
+            self.sig_update_up.emit(val)
+            if current_prog_up < 95:
+                current_prog_up += 1
+                self.sig_update_progress.emit(current_prog_up) # Bắn tín hiệu
 
-        # --- KẾT THÚC ---
-        self.dang_do_toc_do = False
+        final_up = logic_mang.do_upload(callback_func=cb_up)
+        if final_up: self.sig_update_up.emit(final_up)
         
-        # Kiểm tra xem kết thúc do xong hay do hủy
+        # 3. Kết thúc (100%)
+        self.sig_update_progress.emit(100)
+        self.sig_finish.emit()
+
+    def check_continue(self):
         if logic_mang.co_lenh_huy:
-            self.lbl_status.configure(text="ĐÃ HỦY ĐO", text_color="red")
-            self.progress_bar.set(0)
-        else:
-            self.lbl_status.configure(text="HOÀN TẤT!", text_color="#00C853")
+            self.sig_finish.emit()
+            return False
+        return True
 
-        # Khôi phục nút bấm
-        self.btn_action.configure(state="normal", text="BẮT ĐẦU ĐO", fg_color="#00C853", hover_color="#009624")
+    def set_status_safe(self, text, color):
+        # Wrapper để cập nhật text an toàn từ thread
+        QTimer.singleShot(0, lambda: self._update_lbl(text, color))
 
-    def kiem_tra_huy(self):
-        """Hàm phụ trợ để check xem user có bấm hủy không"""
-        if logic_mang.co_lenh_huy:
-            self.dang_do_toc_do = False
-            self.lbl_status.configure(text="ĐÃ HỦY ĐO", text_color="red")
-            self.btn_action.configure(state="normal", text="BẮT ĐẦU ĐO", fg_color="#00C853", hover_color="#009624")
-            self.progress_bar.set(0)
-            return False # Báo hiệu ngừng chạy
-        return True # Báo hiệu chạy tiếp
+    def _update_lbl(self, text, color):
+        self.lbl_status.setText(text)
+        self.lbl_status.setStyleSheet(f"color: {color}; font-style: italic;")
 
-    # --- CÁC HÀM CŨ GIỮ NGUYÊN ---
-    def lay_thong_tin_nen(self):
-        info = logic_mang.lay_thong_tin_ip()
-        if info:
-            self.lbl_isp.configure(text=info['isp'])
-            self.lbl_ip_loc.configure(text=f"IP: {info['ip']}  |  {info['city']}, {info['country']}")
-
-    def cap_nhat_down(self, toc_do):
-        self.lbl_down.configure(text=f"{toc_do}")
-        self.progress_bar.set(0.3 + (toc_do % 10)/50) # Hiệu ứng nhúc nhích nhẹ
-
-    def cap_nhat_up(self, toc_do):
-        self.lbl_up.configure(text=f"{toc_do}")
-        self.progress_bar.set(0.6 + (toc_do % 10)/50)
-
-    def xy_ly_switch_monitor(self):
-        if self.switch_monitor.get() == 1:
+    def toggle_monitor(self):
+        if self.btn_monitor.isChecked():
+            self.btn_monitor.setText("TẮT")
             self.is_monitoring = True
-            self.monitor_core = logic_mang.chay_giam_sat_he_thong(self.cap_nhat_bandwidth_he_thong)
+            def cb_mon(down, up): self.sig_update_sys_monitor.emit(down, up)
+            self.monitor_core = logic_mang.chay_giam_sat_he_thong(cb_mon)
         else:
+            self.btn_monitor.setText("BẬT")
             self.is_monitoring = False
             if self.monitor_core: self.monitor_core.dung_giam_sat()
-            self.lbl_sys_down.configure(text="↓ 0.00 MB/s")
-            self.lbl_sys_up.configure(text="↑ 0.00 MB/s")
+            self.sys_down.setText("↓ 0.00 MB/s")
+            self.sys_up.setText("↑ 0.00 MB/s")
 
-    def cap_nhat_bandwidth_he_thong(self, down_mb, up_mb):
+    def update_sys_ui(self, down, up):
         if self.is_monitoring:
-            self.lbl_sys_down.configure(text=f"↓ {down_mb:.2f} MB/s")
-            self.lbl_sys_up.configure(text=f"↑ {up_mb:.2f} MB/s")
+            self.sys_down.setText(f"↓ {down:.2f} MB/s")
+            self.sys_up.setText(f"↑ {up:.2f} MB/s")
+
+    def thread_lay_thong_tin(self):
+        info = logic_mang.lay_thong_tin_ip()
+        if info: self.sig_info.emit(info)
+
+    def update_info_ui(self, info):
+        self.lbl_isp.setText(info['isp'])
+        self.lbl_ip_loc.setText(f"IP: {info['ip']} | {info['city']}, {info['country']}")
