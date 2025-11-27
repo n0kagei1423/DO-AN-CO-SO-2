@@ -95,3 +95,5 @@ class NetworkApp(tk.Tk):
 if __name__ == "__main__":
     app = NetworkApp()
     app.mainloop()
+
+print("á")
