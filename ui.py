@@ -194,13 +194,29 @@ class MainWindow(QMainWindow):
 
     def start_test(self):
         self.is_running = True
+        
+        # Đổi giao diện nút bấm
+        self.lbl_status.setText("Đang đo...")
+        self.lbl_status.setStyleSheet("color: orange; font-style: italic;")
         self.btn_action.setText("HỦY BỎ")
         self.btn_action.setObjectName("BtnCancel")
         self.btn_action.setStyleSheet(STYLESHEET)
+        
+        # Reset các chỉ số về 0
         self.val_ping.setText("--- ms")
         self.val_down.setText("---")
         self.val_up.setText("---")
         self.progress.setValue(0)
+        
+        # --- THÊM MỚI: Reset thông tin IP để báo hiệu đang cập nhật ---
+        self.lbl_isp.setText("Đang cập nhật mạng...")
+        self.lbl_ip_loc.setText("Đang lấy IP mới...")
+        
+        # --- THÊM MỚI: Chạy lại luồng lấy thông tin IP ---
+        # Việc này đảm bảo khi đổi mạng (Wifi -> 4G), IP sẽ được cập nhật lại
+        threading.Thread(target=self.thread_lay_thong_tin, daemon=True).start()
+        
+        # Reset trạng thái logic và chạy đo tốc độ
         logic_mang.reset_trang_thai()
         threading.Thread(target=self.worker_speedtest, daemon=True).start()
 
