@@ -4,6 +4,7 @@ import time         # Thư viện đo thời gian
 import socket       # Thư viện kết nối mạng cấp thấp (để đo Ping TCP)
 import os           # Thư viện tương tác hệ điều hành (để tạo dữ liệu rác)
 import psutil       # Thư viện lấy thông tin hệ thống (để đo băng thông tổng)
+import random
 
 # --- CẤU HÌNH ---
 # Link tải file mẫu 50MB từ Cloudflare (Server CDN rất nhanh và ổn định)
@@ -263,3 +264,7 @@ def chay_giam_sat_he_thong(callback):
     t.daemon = True # Thread daemon sẽ tự chết khi tắt app chính
     t.start()
     return monitor
+
+def sinh_ma_otp():
+    """Tạo ngẫu nhiên 6 số"""
+    return str(random.randint(100000, 999999))
