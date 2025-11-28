@@ -7,8 +7,13 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QCursor, QIcon
 
+from PyQt6.QtCore import QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
+from PyQt6.QtWidgets import QGraphicsOpacityEffect
+
 import core as logic_mang
 import database # Import file database mới tạo
+
+from utils import otp as email_service  # Import module otp từ utils
 
 # --- STYLE SHEET ---
 STYLESHEET = """
@@ -46,6 +51,10 @@ QProgressBar::chunk { background-color: #2196F3; border-radius: 5px; }
 # --- MÀN HÌNH LOGIN ---
 class LoginWidget(QWidget):
     sig_login_success = pyqtSignal(str) # Tín hiệu báo đăng nhập thành công
+
+    # Tín hiệu báo kết quả gửi mail (Thành công/Thất bại, Lời nhắn)
+    # Đây là cầu nối giúp luồng phụ báo cáo về mà không làm treo máy
+    sig_gui_mail_xong = pyqtSignal(bool, str)
 
     def __init__(self):
         super().__init__()
@@ -89,7 +98,16 @@ class LoginWidget(QWidget):
         self.btn_login.clicked.connect(self.xac_thuc_otp)
         layout.addWidget(self.btn_login)
 
+        # --- KẾT NỐI TÍN HIỆU ---
+        # Khi tín hiệu "Gửi xong" phát ra -> Chạy hàm "xu_ly_ket_qua"
+        self.sig_gui_mail_xong.connect(self.xu_ly_ket_qua_gui_mail)
+
         self.current_otp = None
+
+        # Thêm timer để đếm ngược
+        self.timer_countdown = QTimer()
+        self.timer_countdown.timeout.connect(self.cap_nhat_dem_nguoc)
+        self.thoi_gian_cho = 15
 
     def gui_otp(self):
         email = self.txt_email.text()
@@ -97,26 +115,94 @@ class LoginWidget(QWidget):
             QMessageBox.warning(self, "Lỗi", "Vui lòng nhập Email hợp lệ!")
             return
         
-        # Sinh mã OTP từ logic
-        self.current_otp = logic_mang.sinh_ma_otp()
+        # GỌI TỪ FILE MỚI TRONG THƯ MỤC UTIL
+        self.current_otp = email_service.sinh_ma_otp()
         
-        # Giả lập gửi email (Hiển thị popup để người dùng copy)
-        # Trong thực tế: code này sẽ gửi email qua SMTP
-        QMessageBox.information(self, "Email giả lập", f"Mã OTP gửi về {email} là: {self.current_otp}")
+        # 2. Khóa giao diện lại để báo đang xử lý
+        self.btn_get_otp.setText("Đang gửi OTP...")
+        self.btn_get_otp.setEnabled(False) # Khóa nút không cho bấm nữa
+        self.txt_email.setEnabled(False)   # Khóa ô nhập email
         
-        # Hiện ô nhập OTP
-        self.txt_otp.setVisible(True)
-        self.btn_login.setVisible(True)
-        self.btn_get_otp.setEnabled(False) # Khóa nút gửi lại tạm thời
+        threading.Thread(target=self.luong_gui_mail, args=(email, self.current_otp)).start()
+
+    def luong_gui_mail(self, email, otp):
+        """Hàm này chạy ngầm, tuyệt đối không đụng vào UI (MessageBox, setText...)"""
+        try:
+            # Gửi mail (Giả lập hoặc thật tùy file util của bạn)
+            ket_qua = email_service.gui_otp_qua_email(email, otp)
+            
+            if ket_qua:
+                # Nếu gửi được -> Bắn tín hiệu True
+                self.sig_gui_mail_xong.emit(True, f"Đã gửi mã tới {email}")
+            else:
+                # Nếu lỗi -> Bắn tín hiệu False
+                self.sig_gui_mail_xong.emit(False, "Gửi thất bại. Kiểm tra kết nối.")
+                
+        except Exception as e:
+            self.sig_gui_mail_xong.emit(False, str(e))
+
+    def xu_ly_ket_qua_gui_mail(self, thanh_cong, loi_nhan):
+        """Hàm này chạy ở Luồng Chính -> Được phép vẽ giao diện"""
+        
+        # Mở khóa lại nút gửi (để lỡ sai thì bấm lại)
+        self.btn_get_otp.setText("Gửi lại OTP")
+        self.btn_get_otp.setEnabled(True)
+        self.txt_email.setEnabled(True)
+        
+        if thanh_cong:
+            # Hiện thông báo thành công
+            QMessageBox.information(self, "Thành công", loi_nhan)
+            # Hiện ô nhập OTP
+            self.txt_otp.setVisible(True)
+            self.btn_login.setVisible(True)
+            self.txt_otp.setFocus() # Đưa con trỏ chuột vào ô nhập OTP luôn cho tiện
+
+            # --- BẮT ĐẦU ĐẾM NGƯỢC ---
+            self.thoi_gian_cho = 15
+            self.btn_get_otp.setEnabled(False) # Khóa nút
+            self.btn_get_otp.setStyleSheet("background-color: gray; color: white; border-radius: 5px; font-weight: bold;")
+            self.timer_countdown.start(1000) # Cứ 1 giây gọi hàm 1 lần
+        else:
+            # Hiện thông báo lỗi
+            QMessageBox.critical(self, "Lỗi", loi_nhan)
+            self.btn_get_otp.setText("Gửi mã OTP")
+            self.btn_get_otp.setEnabled(True)
+            self.btn_get_otp.setStyleSheet("background-color: #2196F3; color: white; border-radius: 5px; font-weight: bold;")
+            self.txt_email.setEnabled(True)
 
     def xac_thuc_otp(self):
-        if self.txt_otp.text() == self.current_otp:
+        otp_nhap = self.txt_otp.text().strip()
+        if otp_nhap == self.current_otp:
             self.sig_login_success.emit(self.txt_email.text())
         else:
-            QMessageBox.critical(self, "Lỗi", "Mã OTP không đúng!")
+            QMessageBox.critical(self, "Sai mã", "Mã OTP không chính xác!")
+
+    # --- HÀM MỚI: CẬP NHẬT SỐ GIÂY TRÊN NÚT ---
+    def cap_nhat_dem_nguoc(self):
+        self.thoi_gian_cho -= 1
+        self.btn_get_otp.setText(f"Gửi lại OTP ({self.thoi_gian_cho}s)")
+        self.btn_get_otp.setStyleSheet("background-color: gray; color: white; border-radius: 5px; font-weight: bold;")
+
+        
+        if self.thoi_gian_cho <= 0:
+            self.timer_countdown.stop()
+            self.btn_get_otp.setText("Gửi lại OTP")
+            self.btn_get_otp.setStyleSheet("background-color: #2196F3; color: white; border-radius: 5px; font-weight: bold;")
+            self.btn_get_otp.setEnabled(True)
+
+    def reset_form(self):
+        """Xóa trắng form đăng nhập để đón người mới"""
+        self.txt_email.clear()
+        self.txt_otp.clear()
+        self.txt_otp.setVisible(False)
+        self.btn_login.setVisible(False)
+        self.btn_get_otp.setEnabled(True)
+        self.btn_get_otp.setText("Gửi mã OTP")
+        self.current_otp = None
 
 # --- MÀN HÌNH CHÍNH (APP) ---
 class AppWidget(QWidget):
+    sig_req_logout = pyqtSignal()
     def __init__(self):
         super().__init__()
         self.layout_main = QVBoxLayout(self)
@@ -147,9 +233,29 @@ class AppWidget(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # 1. Header Info
+        header_user_layout = QHBoxLayout()
+
         self.lbl_user = QLabel("Xin chào: ---")
         self.lbl_user.setStyleSheet("color: #4facfe; font-weight: bold; font-size: 14px;")
         layout.addWidget(self.lbl_user)
+
+        header_user_layout.addStretch()
+
+        # Nút Đăng xuất nhỏ gọn màu đỏ
+        self.btn_logout = QPushButton("Đăng xuất")
+        self.btn_logout.setFixedSize(80, 25)
+        self.btn_logout.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_logout.setStyleSheet("""
+            QPushButton { background-color: #333; color: #ff5252; border: 1px solid #ff5252; border-radius: 5px; font-weight: bold; font-size: 11px;}
+            QPushButton:hover { background-color: #ff5252; color: white; }
+        """)
+        # Kết nối nút bấm với tín hiệu logout
+        self.btn_logout.clicked.connect(self.sig_req_logout.emit)
+        
+        header_user_layout.addWidget(self.btn_logout)
+        
+        # Thêm layout ngang này vào layout chính
+        layout.addLayout(header_user_layout)
 
         self.lbl_isp = QLabel("Đang tải ISP...")
         self.lbl_isp.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
@@ -297,6 +403,37 @@ class AppWidget(QWidget):
         # Tự động tải lịch sử của user này
         self.load_history_data()
 
+class FadeStackedWidget(QStackedWidget):
+    def __init__(self):
+        super().__init__()
+        self.duration = 500  # Thời gian hiệu ứng (ms)
+        self.easing_curve = QEasingCurve.Type.InOutQuad # Kiểu chuyển động mượt
+
+    def fade_to_widget(self, widget):
+        """Hàm chuyển trang có hiệu ứng Fade"""
+        if self.currentWidget() == widget:
+            return
+
+        # 1. Chuẩn bị widget mới (Set độ trong suốt = 0 để ẩn nó đi)
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        effect.setOpacity(0)
+        
+        # 2. Chuyển stack sang widget mới ngay lập tức
+        self.setCurrentWidget(widget)
+        
+        # 3. Tạo Animation: Tăng độ rõ từ 0 lên 1
+        self.anim = QPropertyAnimation(effect, b"opacity")
+        self.anim.setDuration(self.duration)
+        self.anim.setStartValue(0)
+        self.anim.setEndValue(1)
+        self.anim.setEasingCurve(self.easing_curve)
+        
+        # 4. Khi chạy xong thì xóa hiệu ứng opacity để tiết kiệm ram
+        self.anim.finished.connect(lambda: widget.setGraphicsEffect(None))
+        
+        self.anim.start()
+
 # --- CỬA SỔ CHÍNH (CONTAINER) ---
 class MainWindow(QMainWindow):
     # Signals
@@ -315,18 +452,17 @@ class MainWindow(QMainWindow):
         self.setFixedWidth(520)
         self.setWindowFlags(Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowCloseButtonHint)
 
-        # Stacked Widget để chuyển màn hình
-        self.stack = QStackedWidget()
+        self.stack = FadeStackedWidget() 
         self.setCentralWidget(self.stack)
 
-        # Màn hình 1: Login
         self.login_screen = LoginWidget()
         self.login_screen.sig_login_success.connect(self.on_login_success)
         self.stack.addWidget(self.login_screen)
 
-        # Màn hình 2: App chính
         self.app_screen = AppWidget()
         self.stack.addWidget(self.app_screen)
+        
+        self.app_screen.tabs.currentChanged.connect(self.tu_dong_resize_tab)
         
         # Kết nối Signal cho App Screen
         self.setup_connections()
@@ -347,7 +483,7 @@ class MainWindow(QMainWindow):
         database.khoi_tao_db(email) 
         
         self.app_screen.set_user_email(email)
-        self.stack.setCurrentWidget(self.app_screen)
+        self.stack.fade_to_widget(self.app_screen)
         threading.Thread(target=self.thread_lay_thong_tin, daemon=True).start()
         self.app_screen.load_history_data()
 
@@ -357,15 +493,32 @@ class MainWindow(QMainWindow):
         
         # Yêu cầu tính toán lại kích thước cho vừa với màn hình App (nhiều nút hơn)
         self.adjustSize()
-        
-        # Khóa lại kích thước mới
-        self.setFixedSize(550, 800)
 
-        # Căn giữa màn hình máy tính (Option bổ sung cho đẹp)
-        qr = self.frameGeometry()
-        cp = self.screen().availableGeometry().center()
-        qr.moveCenter(cp)
-        self.move(qr.topLeft())
+        self.tu_dong_resize_tab(0)
+
+    def tu_dong_resize_tab(self, index):
+        """
+        index = 0: Tab Đo Tốc Độ
+        index = 1: Tab Lịch Sử
+        """
+        if index == 0:
+            # Tab Đo Tốc Độ: Cần Cao và Hẹp (giao diện điện thoại)
+            rong = 550
+            cao = 750
+        else:
+            # Tab Lịch Sử: Cần Rộng hơn để hiển thị bảng nhiều cột
+            rong = 1000
+            cao = 600
+            
+        # 1. Đặt kích thước cố định mới
+        self.setFixedSize(rong, cao)
+        
+        # 2. (Tùy chọn) Căn giữa lại màn hình 
+        # Vì khi resize, cửa sổ hay bị lệch sang một bên, code này giúp nó nhảy về giữa
+        frame_geo = self.frameGeometry()
+        screen_center = self.screen().availableGeometry().center()
+        frame_geo.moveCenter(screen_center)
+        self.move(frame_geo.topLeft())
 
     def setup_connections(self):
         # Kết nối các nút bấm trong App Screen với Logic ở Main Window
@@ -380,6 +533,8 @@ class MainWindow(QMainWindow):
         self.sig_finish.connect(self.on_process_finished)
         self.sig_info.connect(self.update_info_ui)
         self.sig_update_sys_monitor.connect(self.update_sys_ui)
+
+        self.app_screen.sig_req_logout.connect(self.on_logout)
 
     # --- LOGIC ĐO (Tương tự cũ, có thêm phần lưu DB) ---
     def on_btn_action_click(self):
@@ -554,10 +709,27 @@ class MainWindow(QMainWindow):
         self.app_screen.sys_down.setText(f"↓ {down:.2f} MB/s")
         self.app_screen.sys_up.setText(f"↑ {up:.2f} MB/s")
 
-# --- MAIN ---
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    font = app.font(); font.setFamily("Segoe UI"); app.setFont(font)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    def on_logout(self):
+        # 1. Nếu đang đo dở thì hủy ngay
+        if self.app_screen.is_running:
+            self.cancel_test()
+            
+        # 2. Xóa thông tin user hiện tại
+        self.app_screen.current_email = ""
+        self.app_screen.lbl_user.setText("Xin chào: ---")
+        
+        # 3. Dọn dẹp form đăng nhập cho sạch sẽ
+        self.login_screen.reset_form()
+        
+        # 4. Chuyển màn hình về Login (có hiệu ứng Fade nếu bạn dùng FadeStackedWidget)
+        # Nếu dùng QStackedWidget thường thì là: self.stack.setCurrentWidget(self.login_screen)
+        self.stack.fade_to_widget(self.login_screen)
+            
+        # 5. Resize cửa sổ về kích thước nhỏ (cho màn hình Login)
+        self.setFixedSize(500, 350)
+        
+        # Căn giữa lại màn hình cho đẹp
+        frame_geo = self.frameGeometry()
+        screen_center = self.screen().availableGeometry().center()
+        frame_geo.moveCenter(screen_center)
+        self.move(frame_geo.topLeft())
