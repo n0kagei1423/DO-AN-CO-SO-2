@@ -9,12 +9,10 @@ import os
 
 load_dotenv('./database/env/.env')
 
-# --- CẤU HÌNH EMAIL ---
 EMAIL_SENDER = os.getenv("MAIL")
 EMAIL_PASSWORD = os.getenv("PASS")
 
 def sinh_ma_otp():
-    """Tạo ngẫu nhiên 6 số"""
     return str(random.randint(100000, 999999))
 
 def gui_otp_qua_email(email_nhan, ma_otp):
@@ -27,7 +25,6 @@ def gui_otp_qua_email(email_nhan, ma_otp):
     context = ssl.create_default_context()
 
     try:
-        # THAY ĐỔI: Dùng cổng 587 và starttls
         with smtplib.SMTP('smtp.gmail.com', 587, timeout=10) as server:
             server.starttls(context=context)
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)

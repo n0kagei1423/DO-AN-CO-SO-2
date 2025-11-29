@@ -7,7 +7,6 @@ from PyQt6.QtGui import QFont, QCursor
 
 import database
 
-# --- MÀN HÌNH CHÍNH (APP) ---
 class AppWidget(QWidget):
     sig_req_logout = pyqtSignal()
     def __init__(self):
@@ -15,25 +14,24 @@ class AppWidget(QWidget):
         self.layout_main = QVBoxLayout(self)
         self.layout_main.setContentsMargins(0, 0, 0, 0)
         
-        # Tab Widget
+        #Tab Widget
         self.tabs = QTabWidget()
         self.layout_main.addWidget(self.tabs)
 
-        # Tab 1: Đo tốc độ
+        #Đo tốc độ
         self.tab_speed = QWidget()
         self.setup_tab_speed()
         self.tabs.addTab(self.tab_speed, "Đo Tốc Độ")
 
-        # Tab 2: Lịch sử
+        #Lịch sử
         self.tab_history = QWidget()
         self.setup_tab_history()
         self.tabs.addTab(self.tab_history, "Lịch Sử Đo")
         
-        # Biến Logic
         self.is_running = False
         self.monitor_core = None
         self.current_email = "" # Lưu email người dùng đang đăng nhập
-        # Tham chiếu đến danh sách lịch sử tạm thời của MainWindow
+
         self.temp_history_ref = []
 
     def setup_tab_speed(self):
@@ -41,7 +39,6 @@ class AppWidget(QWidget):
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
         
-        # 1. Header Info
         header_user_layout = QHBoxLayout()
         
         # Nút đăng nhập, sẽ được ẩn khi đã đăng nhập
@@ -54,7 +51,7 @@ class AppWidget(QWidget):
         # Label hiển thị email, sẽ được ẩn khi chưa đăng nhập
         self.lbl_user = QLabel("Xin chào: ---")
         self.lbl_user.setStyleSheet("color: #4facfe; font-weight: bold; font-size: 14px;")
-        self.lbl_user.setVisible(False) # Ẩn ban đầu
+        self.lbl_user.setVisible(False)
         header_user_layout.addWidget(self.lbl_user)
 
         header_user_layout.addStretch()
@@ -67,7 +64,7 @@ class AppWidget(QWidget):
             QPushButton:hover { background-color: #ff5252; color: white; }
         """)
         self.btn_logout.clicked.connect(self.sig_req_logout.emit)
-        self.btn_logout.setVisible(False) # Ẩn ban đầu
+        self.btn_logout.setVisible(False)
         
         header_user_layout.addWidget(self.btn_logout)
         
@@ -84,8 +81,7 @@ class AppWidget(QWidget):
         self.lbl_ip_loc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lbl_ip_loc)
 
-        # 2. Cards Display
-        # -- Ping --
+        #Ping
         self.card_ping = QFrame()
         self.card_ping.setObjectName("Card"); self.card_ping.setProperty("class", "CardPing"); self.card_ping.setObjectName("CardPing")
         l_ping = QHBoxLayout(self.card_ping)
@@ -95,7 +91,7 @@ class AppWidget(QWidget):
         l_ping.addWidget(self.val_ping, alignment=Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.card_ping)
 
-        # -- Download --
+        #Download
         self.card_down = QFrame()
         self.card_down.setObjectName("CardDown")
         l_down = QVBoxLayout(self.card_down)
@@ -106,7 +102,7 @@ class AppWidget(QWidget):
         l_down.addWidget(QLabel("Mbps"), alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.card_down)
 
-        # -- Upload --
+        #Upload
         self.card_up = QFrame()
         self.card_up.setObjectName("CardUp")
         l_up = QVBoxLayout(self.card_up)
@@ -117,7 +113,7 @@ class AppWidget(QWidget):
         l_up.addWidget(QLabel("Mbps"), alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.card_up)
 
-        # 3. Progress Bar & Status
+        #Progress Bar & Status
         self.progress = QProgressBar()
         self.progress.setTextVisible(False)
         self.progress.setRange(0, 100)
@@ -127,7 +123,7 @@ class AppWidget(QWidget):
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lbl_status)
 
-        # 4. Main Button
+        #Main Button
         self.btn_action = QPushButton("BẮT ĐẦU ĐO")
         self.btn_action.setObjectName("BtnStart")
         self.btn_action.setFixedHeight(50)
@@ -136,7 +132,7 @@ class AppWidget(QWidget):
 
         layout.addStretch()
 
-        # 5. Footer Monitor (Giản lược hiển thị)
+        #Footer Monitor
         frame_footer = QFrame()
         frame_footer.setStyleSheet("background-color: #151515; border-radius: 10px;")
         l_foot = QHBoxLayout(frame_footer)
@@ -163,15 +159,15 @@ class AppWidget(QWidget):
     def setup_tab_history(self):
         layout = QVBoxLayout(self.tab_history)
         
-        # Bảng hiển thị (6 cột)
+        # Bảng hiển thị
         self.table = QTableWidget()
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(["ID", "Thời gian", "Ping", "Down", "Up", "Mạng"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # Ẩn cột dọc (số thứ tự mặc định)
+
         self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers) # Không cho sửa
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows) # Chọn cả hàng
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.table)
         
         # Nút làm mới
@@ -183,38 +179,35 @@ class AppWidget(QWidget):
         self.adjustSize()
 
     def load_history_data(self):
-        """Logic nạp dữ liệu từ DB riêng của user"""
-        self.table.setRowCount(0) # Xóa dữ liệu cũ trên bảng
+
+        self.table.setRowCount(0)
         
         if self.current_email:
-            # --- Chế độ đã đăng nhập: Lấy từ DB ---
             data = database.lay_lich_su(self.current_email)
             for row_number, row_data in enumerate(data):
                 self.table.insertRow(row_number)
                 # Cấu trúc từ DB: (id, thoi_gian, ping, download, upload, isp, ip)
                 display_data = [
-                    row_data[0], # ID
-                    row_data[1], # Thời gian
-                    row_data[2], # Ping
-                    row_data[3], # Down
-                    row_data[4], # Up
-                    row_data[5]  # ISP
+                    row_data[0],
+                    row_data[1],
+                    row_data[2],
+                    row_data[3],
+                    row_data[4],
+                    row_data[5]
                 ]
                 for column_number, cell_data in enumerate(display_data):
                     item = QTableWidgetItem(str(cell_data))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     self.table.setItem(row_number, column_number, item)
         else:
-            # --- Chế độ khách: Lấy từ danh sách tạm ---
-            # Đảo ngược danh sách để kết quả mới nhất hiện lên đầu
+            #Chế độ khách: Lấy từ danh sách tạm
             temp_data_reversed = reversed(self.temp_history_ref)
             for row_number, row_data in enumerate(temp_data_reversed):
                 thoi_gian = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.table.insertRow(row_number)
-                # Cấu trúc từ temp_history: dict {'ping': ..., 'download': ...}
                 display_data = [
-                    "Tạm", # ID
-                    thoi_gian, # Thời gian
+                    "Temp",
+                    thoi_gian,
                     row_data.get('ping', '---'),
                     row_data.get('download', 0.0),
                     row_data.get('upload', 0.0),
@@ -223,15 +216,13 @@ class AppWidget(QWidget):
                 for column_number, cell_data in enumerate(display_data):
                     item = QTableWidgetItem(str(cell_data))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    # Tô màu khác để phân biệt
                     item.setForeground(Qt.GlobalColor.yellow)
                     self.table.setItem(row_number, column_number, item)
 
     def set_user_email(self, email):
-        """Hàm này được gọi từ MainWindow sau khi Login thành công"""
+        """Được gọi từ MainWindow sau khi Login thành công"""
         self.current_email = email
         self.lbl_user.setText(f"User: {email}")
-        # Tự động tải lịch sử của user này
         self.load_history_data()
         
         # Cập nhật UI

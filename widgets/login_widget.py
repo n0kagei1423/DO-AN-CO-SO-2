@@ -4,15 +4,12 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 
-import utils.otp as email_service  # Import core.py và đặt bí danh là email_service
+import utils.otp as email_service
 
-# --- MÀN HÌNH LOGIN ---
 class LoginWidget(QWidget):
-    sig_login_success = pyqtSignal(str) # Tín hiệu báo đăng nhập thành công
-    sig_back_requested = pyqtSignal() # Tín hiệu yêu cầu quay lại
+    sig_login_success = pyqtSignal(str)
+    sig_back_requested = pyqtSignal()
 
-    # Tín hiệu báo kết quả gửi mail (Thành công/Thất bại, Lời nhắn)
-    # Đây là cầu nối giúp luồng phụ báo cáo về mà không làm treo máy
     sig_gui_mail_xong = pyqtSignal(bool, str)
 
     def __init__(self):
@@ -41,7 +38,7 @@ class LoginWidget(QWidget):
         self.btn_get_otp.clicked.connect(self.gui_otp)
         layout.addWidget(self.btn_get_otp)
 
-        # Nút Quay lại màn hình chính (hiển thị ngay từ đầu)
+        # Nút Quay lại màn hình chính
         self.btn_back_main = QPushButton("Quay lại")
         self.btn_back_main.setFixedWidth(300)
         self.btn_back_main.setFixedHeight(40)
@@ -77,7 +74,6 @@ class LoginWidget(QWidget):
 
         layout.addLayout(button_layout)
 
-        # --- KẾT NỐI TÍN HIỆU ---
         # Khi tín hiệu "Gửi xong" phát ra -> Chạy hàm "xu_ly_ket_qua"
         self.sig_gui_mail_xong.connect(self.xu_ly_ket_qua_gui_mail)
 
@@ -94,20 +90,16 @@ class LoginWidget(QWidget):
             QMessageBox.warning(self, "Lỗi", "Vui lòng nhập Email hợp lệ!")
             return
         
-        # GỌI TỪ FILE MỚI TRONG THƯ MỤC UTIL
         self.current_otp = email_service.sinh_ma_otp()
         
-        # 2. Khóa giao diện lại để báo đang xử lý
         self.btn_get_otp.setText("Đang gửi OTP...")
-        self.btn_get_otp.setEnabled(False) # Khóa nút không cho bấm nữa
-        self.txt_email.setEnabled(False)   # Khóa ô nhập email
+        self.btn_get_otp.setEnabled(False)
+        self.txt_email.setEnabled(False)
         
         threading.Thread(target=self.luong_gui_mail, args=(email, self.current_otp)).start()
 
     def luong_gui_mail(self, email, otp):
-        """Hàm này chạy ngầm, tuyệt đối không đụng vào UI (MessageBox, setText...)"""
         try:
-            # Gửi mail (Giả lập hoặc thật tùy file util của bạn)
             ket_qua = email_service.gui_otp_qua_email(email, otp)
             
             if ket_qua:
@@ -121,7 +113,6 @@ class LoginWidget(QWidget):
             self.sig_gui_mail_xong.emit(False, str(e))
 
     def xu_ly_ket_qua_gui_mail(self, thanh_cong, loi_nhan):
-        """Hàm này chạy ở Luồng Chính -> Được phép vẽ giao diện"""
         
         # Mở khóa lại nút gửi (để lỡ sai thì bấm lại)
         self.btn_get_otp.setText("Gửi lại OTP")
@@ -129,22 +120,19 @@ class LoginWidget(QWidget):
         self.txt_email.setEnabled(True)
         
         if thanh_cong:
-            # Hiện thông báo thành công
             QMessageBox.information(self, "Thành công", loi_nhan)
-            # Hiện ô nhập OTP
             self.txt_otp.setVisible(True)
             self.btn_login.setVisible(True)
             self.btn_back.setVisible(True)
-            self.btn_back_main.setVisible(False) # Ẩn nút quay lại chính
-            self.txt_otp.setFocus() # Đưa con trỏ chuột vào ô nhập OTP luôn cho tiện
+            self.btn_back_main.setVisible(False)
+            self.txt_otp.setFocus()
 
-            # --- BẮT ĐẦU ĐẾM NGƯỢC ---
+            #BẮT ĐẦU ĐẾM NGƯỢC
             self.thoi_gian_cho = 15
-            self.btn_get_otp.setEnabled(False) # Khóa nút
+            self.btn_get_otp.setEnabled(False)
             self.btn_get_otp.setStyleSheet("background-color: gray; color: white; border-radius: 5px; font-weight: bold;")
             self.timer_countdown.start(1000) # Cứ 1 giây gọi hàm 1 lần
         else:
-            # Hiện thông báo lỗi
             QMessageBox.critical(self, "Lỗi", loi_nhan)
             self.btn_get_otp.setText("Gửi mã OTP")
             self.btn_get_otp.setEnabled(True)
@@ -158,7 +146,6 @@ class LoginWidget(QWidget):
         else:
             QMessageBox.critical(self, "Sai mã", "Mã OTP không chính xác!")
 
-    # --- HÀM MỚI: CẬP NHẬT SỐ GIÂY TRÊN NÚT ---
     def cap_nhat_dem_nguoc(self):
         self.thoi_gian_cho -= 1
         self.btn_get_otp.setText(f"Gửi lại OTP ({self.thoi_gian_cho}s)")

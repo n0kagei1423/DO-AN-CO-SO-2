@@ -3,15 +3,13 @@ from PyQt6.QtWidgets import QMainWindow
 from PyQt6.QtCore import Qt, pyqtSignal
 
 import core as logic_mang
-import database # Import file database mới tạo
+import database
 
 from styles import STYLESHEET
 from widgets.login_widget import LoginWidget
 from widgets.app_widget import AppWidget
 from widgets.fade_stacked_widget import FadeStackedWidget
 
-
-# --- CỬA SỔ CHÍNH (CONTAINER) ---
 class MainWindow(QMainWindow):
     # Signals
     sig_update_ping = pyqtSignal(str)
@@ -29,9 +27,7 @@ class MainWindow(QMainWindow):
         self.setFixedWidth(520)
         self.setWindowFlags(Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowCloseButtonHint)
 
-        # Biến tạm lưu kết quả để ghi DB
         self.last_result = {}
-        # Danh sách lưu kết quả tạm thời khi chưa đăng nhập
         self.temp_history = []
 
         self.stack = FadeStackedWidget()
@@ -52,14 +48,10 @@ class MainWindow(QMainWindow):
         # Kết nối Signal cho App Screen
         self.setup_connections()
 
-        self.show_app_screen() # Hiển thị màn hình app ngay từ đầu
+        self.show_app_screen()
 
-        # 3. TỰ ĐỘNG CO GIÃN CHIỀU CAO VÀ KHÓA LẠI
-        # adjustSize(): Lệnh này ép cửa sổ co lại vừa khít với nội dung bên trong
         self.adjustSize()
         
-        # Sau khi co lại xong, ta lấy chiều cao đó khóa cứng luôn
-        # Để người dùng không kéo dài xuống dưới được nữa
         self.setFixedSize(self.width(), self.height())
 
     def show_app_screen(self):
@@ -81,7 +73,6 @@ class MainWindow(QMainWindow):
         self.move(frame_geo.topLeft())
 
     def handle_login_success(self, email):
-        # Khi đăng nhập xong mới tạo/kết nối DB riêng của user đó
         database.khoi_tao_db(email)
         
         self.app_screen.set_user_email(email)
@@ -90,7 +81,6 @@ class MainWindow(QMainWindow):
         if self.temp_history:
             for result in self.temp_history:
                 try:
-                    # Sửa lỗi: Truyền tham số đúng theo định dạng của hàm luu_ket_qua
                     database.luu_ket_qua(
                         email=email,
                         ping=result.get('ping', '---'),
@@ -101,11 +91,11 @@ class MainWindow(QMainWindow):
                     )
                 except Exception as e:
                     print(f"Lỗi lưu kết quả tạm vào DB: {e}")
-            # Xóa lịch sử tạm sau khi đã lưu thành công
+
             self.temp_history.clear()
 
         self.show_app_screen()
-        self.app_screen.load_history_data() # Tải lại lịch sử sau khi đã thêm
+        self.app_screen.load_history_data()
 
     def tu_dong_resize_tab(self, index):
         """
@@ -113,19 +103,14 @@ class MainWindow(QMainWindow):
         index = 1: Tab Lịch Sử
         """
         if index == 0:
-            # Tab Đo Tốc Độ: Cần Cao và Hẹp (giao diện điện thoại)
             rong = 550
             cao = 750
         else:
-            # Tab Lịch Sử: Cần Rộng hơn để hiển thị bảng nhiều cột
             rong = 1000
             cao = 600
             
-        # 1. Đặt kích thước cố định mới
         self.setFixedSize(rong, cao)
         
-        # 2. (Tùy chọn) Căn giữa lại màn hình 
-        # Vì khi resize, cửa sổ hay bị lệch sang một bên, code này giúp nó nhảy về giữa
         frame_geo = self.frameGeometry()
         screen_center = self.screen().availableGeometry().center()
         frame_geo.moveCenter(screen_center)
@@ -148,7 +133,6 @@ class MainWindow(QMainWindow):
 
         self.app_screen.sig_req_logout.connect(self.on_logout)
 
-    # --- LOGIC ĐO (Tương tự cũ, có thêm phần lưu DB) ---
     def on_btn_action_click(self):
         if not self.app_screen.is_running:
             self.start_test()
@@ -163,7 +147,7 @@ class MainWindow(QMainWindow):
         self.app_screen.btn_action.setObjectName("BtnCancel")
         self.app_screen.btn_action.setStyleSheet(STYLESHEET)
         self.app_screen.btn_show_login.setEnabled(False)
-        self.app_screen.btn_logout.setEnabled(False) # Vô hiệu hóa nút đăng xuất
+        self.app_screen.btn_logout.setEnabled(False)
         
         # Reset UI
         self.app_screen.val_ping.setText("--- ms")
@@ -214,13 +198,12 @@ class MainWindow(QMainWindow):
             
             final_down = logic_mang.do_download(callback_func=cb_down)
             
-            # --- SỬA LỖI TẠI ĐÂY ---
-            # Nếu final_down là None (lỗi), gán bằng 0.0 để không crash
+            #gán bằng 0.0 để không crash
             if final_down is None:
                 final_down = 0.0
             
             self.last_result['down'] = final_down
-            self.sig_update_down.emit(float(final_down)) # Luôn gửi số thực
+            self.sig_update_down.emit(float(final_down))
             self.sig_update_progress.emit(55)
 
             # 3. Upload
@@ -235,7 +218,6 @@ class MainWindow(QMainWindow):
             
             final_up = logic_mang.do_upload(callback_func=cb_up)
             
-            # --- SỬA LỖI TẠI ĐÂY ---
             if final_up is None:
                 final_up = 0.0
                 
@@ -262,33 +244,28 @@ class MainWindow(QMainWindow):
                 else: # Nếu chưa đăng nhập (khách)
                     self.temp_history.append(result_to_save)
                     print(f"Lưu tạm kết quả: {result_to_save}")
-                    # Tải lại tab lịch sử để hiển thị kết quả tạm mới
                     self.app_screen.load_history_data()
 
             self.sig_update_progress.emit(100)
 
 
         except Exception as e:
-            print(f"Lỗi Worker: {e}") # In lỗi ra terminal để debug
+            print(f"Lỗi Worker: {e}")
             
         finally:
-            self.sig_finish.emit() #to always reset UI
+            self.sig_finish.emit() #always reset UI
 
     def on_process_finished(self):
         # Đánh dấu là đã dừng chạy
         self.app_screen.is_running = False
         
-        # Đổi nút HỦY BỎ (Đỏ) thành BẮT ĐẦU ĐO (Xanh)
         self.app_screen.btn_action.setText("BẮT ĐẦU ĐO")
         self.app_screen.btn_action.setObjectName("BtnStart")
         
-        # Dòng này cực quan trọng: Ép giao diện vẽ lại màu xanh ngay lập tức
         self.app_screen.btn_action.setStyleSheet(STYLESHEET) 
         
-        # Mở khóa nút bấm
         self.app_screen.btn_action.setEnabled(True)
         
-        # Cập nhật dòng trạng thái
         if logic_mang.co_lenh_huy:
             self.app_screen.lbl_status.setText("Đã hủy đo")
             self.app_screen.lbl_status.setStyleSheet("color: red;")
@@ -296,11 +273,10 @@ class MainWindow(QMainWindow):
         else:
             self.app_screen.lbl_status.setText("Hoàn tất!")
             self.app_screen.lbl_status.setStyleSheet("color: #4CAF50;")
-            # Tải lại bảng lịch sử để hiện kết quả mới vừa đo
+
             if self.app_screen.current_email:
                 self.app_screen.load_history_data()
         
-        # Mở khóa lại nút đăng nhập/đăng xuất
         self.app_screen.btn_show_login.setEnabled(True)
         self.app_screen.btn_logout.setEnabled(True)
 
@@ -337,11 +313,8 @@ class MainWindow(QMainWindow):
         self.app_screen.sys_up.setText(f"↑ {up:.2f} MB/s")
 
     def on_logout(self):
-        # 1. Nếu đang đo dở thì hủy ngay
         if self.app_screen.is_running:
             self.cancel_test() 
-
-        # 2. Dọn dẹp form đăng nhập và trạng thái user
         self.login_screen.reset_form()
         self.app_screen.reset_user_state()
 
@@ -350,6 +323,5 @@ class MainWindow(QMainWindow):
         self.app_screen.val_up.setText("---")
         self.app_screen.progress.setValue(0)
         self.app_screen.lbl_isp.setText("Đang tìm...")
-        
-        # 3. Chuyển về màn hình App (ở trạng thái khách)
+
         self.show_app_screen()

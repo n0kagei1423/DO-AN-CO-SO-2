@@ -1,4 +1,3 @@
-# --- STYLE SHEET ---
 STYLESHEET = """
 QMainWindow { background-color: #1e1e1e; }
 QLabel { color: #ffffff; font-family: 'Segoe UI', sans-serif; }

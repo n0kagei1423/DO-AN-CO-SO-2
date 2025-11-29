@@ -5,7 +5,6 @@ from ui import MainWindow
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     
-    # Thiết lập Font mặc định cho toàn app
     font = app.font()
     font.setFamily("Segoe UI")
     app.setFont(font)
