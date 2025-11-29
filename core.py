@@ -149,6 +149,7 @@ class BoXuLyTocDo:
         last_time = start_time
         last_bytes = 0
         current_display_speed = 0
+        peak_display_speed = 0  # Lưu tốc độ hiển thị cao nhất (đã làm mượt)
 
         # Vòng lặp giám sát (Chạy song song với 4 công nhân kia)
         while time.time() - start_time < THOI_GIAN_TEST:
@@ -164,13 +165,17 @@ class BoXuLyTocDo:
             if delta_time > 0:
                 # Công thức: (Số Byte * 8 bit) / (Thời gian * 1 triệu) = Mbps
                 instant_speed = (delta_bytes * 8) / (delta_time * 1_000_000)
-                
+
                 # Thuật toán làm mượt (Smoothing):
                 # Tốc độ hiển thị = 70% số cũ + 30% số mới
                 # Giúp kim đồng hồ không bị giật cục
                 if current_display_speed == 0: current_display_speed = instant_speed
                 else: current_display_speed = (current_display_speed * 0.7) + (instant_speed * 0.3)
                 
+                # Cập nhật tốc độ hiển thị cao nhất
+                if current_display_speed > peak_display_speed:
+                    peak_display_speed = current_display_speed
+
                 # Gọi ngược về giao diện để cập nhật số
                 if callback_update: callback_update(round(current_display_speed, 2))
             
@@ -185,9 +190,8 @@ class BoXuLyTocDo:
 
         if co_lenh_huy: return None
 
-        # Tính tốc độ trung bình toàn quá trình (Số chốt hạ)
-        final_speed = (self.tong_bytes * 8) / ((time.time() - start_time) * 1_000_000)
-        return round(final_speed, 2)
+        # Trả về tốc độ hiển thị cao nhất đã ghi nhận được
+        return round(peak_display_speed, 2)
 
 # --- CÁC HÀM WRAPPER (Vỏ bọc) ---
 # Các hàm này giúp Giao diện gọi Logic dễ dàng hơn
@@ -264,7 +268,3 @@ def chay_giam_sat_he_thong(callback):
     t.daemon = True # Thread daemon sẽ tự chết khi tắt app chính
     t.start()
     return monitor
-
-def sinh_ma_otp():
-    """Tạo ngẫu nhiên 6 số"""
-    return str(random.randint(100000, 999999))
