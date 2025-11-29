@@ -98,10 +98,6 @@ class MainWindow(QMainWindow):
         self.app_screen.load_history_data()
 
     def tu_dong_resize_tab(self, index):
-        """
-        index = 0: Tab Đo Tốc Độ
-        index = 1: Tab Lịch Sử
-        """
         if index == 0:
             rong = 550
             cao = 750
