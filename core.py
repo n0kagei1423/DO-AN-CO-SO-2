@@ -1,10 +1,9 @@
-import requests     # Thư viện để gửi yêu cầu HTTP (tải file/up file)
-import threading    # Thư viện để chạy đa luồng (xử lý song song)
+import requests
+import threading
 import time
-import socket       # Thư viện kết nối mạng cấp thấp (để đo Ping TCP)
-import os           # Thư viện tương tác hệ điều hành (để tạo dữ liệu rác)
-import psutil       # Thư viện lấy thông tin hệ thống (để đo băng thông tổng)
-import random
+import socket
+import os
+import psutil
 
 # Link tải file mẫu 50MB từ Cloudflare
 URL_DOWNLOAD = "https://speed.cloudflare.com/__down?bytes=50000000"
@@ -35,24 +34,22 @@ def lay_thong_tin_ip():
         return None
 
 def kich_hoat_lenh_huy():
-    """Hàm này được Giao diện gọi khi người dùng bấm nút Hủy"""
     global co_lenh_huy, core_hien_tai
     co_lenh_huy = True
     if core_hien_tai:
         core_hien_tai.dung_lai_ngay()
 
 def reset_trang_thai():
-    """Xóa sạch các cờ báo động trước khi bắt đầu đo mới"""
     global co_lenh_huy, core_hien_tai
     co_lenh_huy = False
     core_hien_tai = None
 
 class BoXuLyTocDo:
     def __init__(self, mode="download"):
-        self.tong_bytes = 0       # Biến đếm tổng số byte đã tải/up được
-        self.dang_chay = False    # Trạng thái: Đang chạy hay đã dừng
-        self.lock = threading.Lock() # Cái khóa: Đảm bảo khi cộng điểm không bị tranh chấp giữa các luồng
-        self.mode = mode          # Chế độ: 'download' hoặc 'upload'
+        self.tong_bytes = 0
+        self.dang_chay = False
+        self.lock = threading.Lock()
+        self.mode = mode
         
         # Nếu là upload, tạo trước 1 cục dữ liệu rác 1MB trong RAM
         # os.urandom tạo ra byte ngẫu nhiên để modem không thể nén dữ liệu (đo chính xác hơn)
@@ -121,20 +118,18 @@ class BoXuLyTocDo:
             t.start()
             danh_sach_luong.append(t)
 
-        # Chuẩn bị biến để tính tốc độ Real-time
         start_time = time.time()
         last_time = start_time
         last_bytes = 0
         current_display_speed = 0
-        peak_display_speed = 0  # Lưu tốc độ hiển thị cao nhất
+        peak_display_speed = 0
 
         while time.time() - start_time < THOI_GIAN_TEST:
-            if not self.dang_chay: break # Thoát nếu bị hủy
+            if not self.dang_chay: break
 
-            time.sleep(0.25) # Cứ 0.25 giây dậy tính toán 1 lần
+            time.sleep(0.25)
             now = time.time()
             
-            # Tính lượng thay đổi trong 0.25s vừa qua (Delta)
             delta_time = now - last_time
             delta_bytes = self.tong_bytes - last_bytes
             
@@ -142,17 +137,14 @@ class BoXuLyTocDo:
                 # Công thức: (Số Byte * 8 bit) / (Thời gian * 1 triệu) = Mbps
                 instant_speed = (delta_bytes * 8) / (delta_time * 1_000_000)
 
-                # Thuật toán làm mượt (Smoothing):
                 # Tốc độ hiển thị = 70% số cũ + 30% số mới
                 # Giúp kim đồng hồ không bị giật cục
                 if current_display_speed == 0: current_display_speed = instant_speed
                 else: current_display_speed = (current_display_speed * 0.7) + (instant_speed * 0.3)
                 
-                # Cập nhật tốc độ hiển thị cao nhất
                 if current_display_speed > peak_display_speed:
                     peak_display_speed = current_display_speed
 
-                # Gọi ngược về giao diện để cập nhật số
                 if callback_update: callback_update(round(current_display_speed, 2))
             
             # Cập nhật mốc cũ
@@ -164,15 +156,12 @@ class BoXuLyTocDo:
             t.join()
 
         if co_lenh_huy: return None
-        # Trả về tốc độ hiển thị cao nhất
         return round(peak_display_speed, 2)
 
-# Các hàm này giúp Giao diện gọi Logic dễ dàng hơn
 def ping_tcp(host, port):
     try:
         start = time.time()
         # socket.create_connection tự động chọn IPv4/IPv6 và tự xử lý socket
-        # Tăng timeout lên 3 giây cho mạng 4G yếu
         s = socket.create_connection((host, port), timeout=3.0) 
         end = time.time()
         s.close()
@@ -203,7 +192,6 @@ def do_upload(callback_func=None):
     core_hien_tai = BoXuLyTocDo(mode="upload")
     return core_hien_tai.bat_dau(callback_update=callback_func)
 
-# Sử dụng psutil để đọc thông số card mạng của máy tính
 class GiamSatHeThong:
     def __init__(self):
         self.dang_chay = False
@@ -234,3 +222,58 @@ def chay_giam_sat_he_thong(callback):
     t.daemon = True # Thread daemon sẽ tự chết khi tắt app chính
     t.start()
     return monitor
+
+_process_io_cache = {}
+_process_io_cache_lock = threading.Lock()
+
+def lay_ket_noi_mang():
+    """Sử dụng psutil để lấy danh sách các kết nối mạng và tốc độ của chúng"""
+    global _process_io_cache
+    connections = []
+    
+    # Gom các kết nối theo PID để giảm số lần gọi psutil.Process
+    conns_by_pid = {}
+    try:
+        conns = psutil.net_connections(kind='inet')
+        for conn in conns:
+            if conn.pid is None:
+                continue
+            if conn.pid not in conns_by_pid:
+                conns_by_pid[conn.pid] = []
+            conns_by_pid[conn.pid].append(conn)
+    except Exception as e:
+        print(f"Lỗi khi lấy kết nối mạng: {e}")
+        return []
+
+    new_cache = {}
+    now = time.time()
+
+    with _process_io_cache_lock:
+        for pid, conns_for_pid in conns_by_pid.items():
+            proc_name = "N/A"
+            download_speed = 0.0
+            upload_speed = 0.0
+
+            try:
+                p = psutil.Process(pid)
+                proc_name = p.name()
+                io_counters = p.io_counters() # (read_bytes, write_bytes)
+                
+                if pid in _process_io_cache:
+                    last_time, last_read, last_write = _process_io_cache[pid]
+                    delta_time = now - last_time
+                    if delta_time > 0:
+                        # read_bytes tương ứng với Download, write_bytes với Upload
+                        download_speed = (io_counters.read_bytes - last_read) / delta_time
+                        upload_speed = (io_counters.write_bytes - last_write) / delta_time
+
+                new_cache[pid] = (now, io_counters.read_bytes, io_counters.write_bytes)
+
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+            
+            conn = conns_for_pid[0]
+            connections.append((pid, proc_name, download_speed, upload_speed, conn.status))
+        
+        _process_io_cache = new_cache
+    return connections

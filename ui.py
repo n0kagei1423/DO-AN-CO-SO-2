@@ -98,13 +98,26 @@ class MainWindow(QMainWindow):
         self.app_screen.load_history_data()
 
     def tu_dong_resize_tab(self, index):
+        # Dừng timer cập nhật kết nối khi không ở tab đó
+        if self.app_screen.conn_update_timer.isActive():
+            self.app_screen.conn_update_timer.stop()
+            # Xóa dữ liệu cũ để không hiển thị thông tin lỗi thời khi quay lại
+            self.app_screen.conn_table.setRowCount(0)
+
+
         if index == 0:
             rong = 550
             cao = 750
-        else:
+        elif index == 1: # Tab Lịch sử
             rong = 1000
             cao = 600
+        else:
+            rong = 1200
+            cao = 700
             
+            self.app_screen.load_connections_data()
+            self.app_screen.conn_update_timer.start()
+
         self.setFixedSize(rong, cao)
         
         frame_geo = self.frameGeometry()
@@ -113,12 +126,10 @@ class MainWindow(QMainWindow):
         self.move(frame_geo.topLeft())
 
     def setup_connections(self):
-        # Kết nối các nút bấm trong App Screen với Logic ở Main Window
         self.app_screen.btn_action.clicked.connect(self.on_btn_action_click)
         self.app_screen.btn_monitor.clicked.connect(self.toggle_monitor)
         self.app_screen.btn_show_login.clicked.connect(self.show_login_screen)
         
-        # Kết nối Signal cập nhật giao diện
         self.sig_update_ping.connect(self.app_screen.val_ping.setText)
         self.sig_update_down.connect(lambda v: self.app_screen.val_down.setText(f"{v}"))
         self.sig_update_up.connect(lambda v: self.app_screen.val_up.setText(f"{v}"))
@@ -187,7 +198,7 @@ class MainWindow(QMainWindow):
             current_prog_down = 15
             def cb_down(val):
                 nonlocal current_prog_down
-                self.sig_update_down.emit(float(val)) # Ép kiểu float cho chắc
+                self.sig_update_down.emit(float(val)) # Ép kiểu float
                 if current_prog_down < 55:
                     current_prog_down += 1
                     self.sig_update_progress.emit(current_prog_down)

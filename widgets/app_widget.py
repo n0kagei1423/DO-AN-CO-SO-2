@@ -1,10 +1,11 @@
 import datetime
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QPushButton, QFrame, QProgressBar, QTabWidget,
-                             QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
-from PyQt6.QtCore import Qt, pyqtSignal
+                             QPushButton, QFrame, QProgressBar, QTabWidget, QTableWidget,
+                             QTableWidgetItem, QHeaderView, QAbstractItemView, QLineEdit)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QCursor
 
+import core
 import database
 
 class AppWidget(QWidget):
@@ -27,10 +28,20 @@ class AppWidget(QWidget):
         self.tab_history = QWidget()
         self.setup_tab_history()
         self.tabs.addTab(self.tab_history, "Lịch Sử Đo")
+
+        #Theo dõi kết nối
+        self.tab_connections = QWidget()
+        self.setup_tab_connections()
+        self.tabs.addTab(self.tab_connections, "Theo dõi Kết nối")
         
         self.is_running = False
         self.monitor_core = None
         self.current_email = "" # Lưu email người dùng đang đăng nhập
+
+        # Timer để tự động cập nhật danh sách kết nối
+        self.conn_update_timer = QTimer(self)
+        self.conn_update_timer.setInterval(2000) # 2000ms = 2 giây
+        self.conn_update_timer.timeout.connect(self.load_connections_data)
 
         self.temp_history_ref = []
 
@@ -178,6 +189,75 @@ class AppWidget(QWidget):
 
         self.adjustSize()
 
+    def setup_tab_connections(self):
+        layout = QVBoxLayout(self.tab_connections)
+
+        # Thêm ô tìm kiếm
+        self.txt_search_conn = QLineEdit()
+        self.txt_search_conn.setPlaceholderText("Tìm theo tên tiến trình (ví dụ: chrome.exe)...")
+        self.txt_search_conn.textChanged.connect(self.filter_connections)
+        layout.addWidget(self.txt_search_conn)
+
+        self.conn_table = QTableWidget()
+        self.conn_table.setColumnCount(5)
+        self.conn_table.setHorizontalHeaderLabels(["PID", "Tên tiến trình", "Tốc độ Tải xuống", "Tốc độ Tải lên", "Trạng thái"])
+        self.conn_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.conn_table.verticalHeader().setVisible(False)
+        self.conn_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.conn_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        layout.addWidget(self.conn_table)
+
+    def filter_connections(self):
+        search_text = self.txt_search_conn.text().lower()
+        for row in range(self.conn_table.rowCount()):
+            process_name_item = self.conn_table.item(row, 1) # Cột 1 là "Tên tiến trình"
+            if process_name_item:
+                process_name = process_name_item.text().lower()
+                # Nếu nội dung tìm kiếm nằm trong tên tiến trình -> Hiện dòng đó
+                if search_text in process_name:
+                    self.conn_table.setRowHidden(row, False)
+                else: # Ngược lại -> Ẩn đi
+                    self.conn_table.setRowHidden(row, True)
+
+    def load_connections_data(self):
+        scrollbar = self.conn_table.verticalScrollBar()
+        scroll_position = scrollbar.value()
+        selected_rows = [item.row() for item in self.conn_table.selectedItems()]
+
+        self.conn_table.setRowCount(0)
+        data = core.lay_ket_noi_mang()
+
+        for row_number, row_data in enumerate(data):
+            pid, proc_name, download_speed, upload_speed, status = row_data
+            self.conn_table.insertRow(row_number)
+
+            # Chuyển đổi tốc độ sang đơn vị phù hợp (KB/s hoặc MB/s)
+            def format_speed(speed_bytes):
+                if speed_bytes < 1024:
+                    return f"{speed_bytes:.1f} B/s"
+                elif speed_bytes < 1024 * 1024:
+                    return f"{speed_bytes / 1024:.1f} KB/s"
+                else:
+                    return f"{speed_bytes / (1024 * 1024):.1f} MB/s"
+
+            # Tạo các item cho bảng
+            pid_item = QTableWidgetItem()
+            pid_item.setData(Qt.ItemDataRole.DisplayRole, pid)
+            self.conn_table.setItem(row_number, 0, pid_item)
+            self.conn_table.setItem(row_number, 1, QTableWidgetItem(proc_name))
+            self.conn_table.setItem(row_number, 2, QTableWidgetItem(format_speed(download_speed)))
+            self.conn_table.setItem(row_number, 3, QTableWidgetItem(format_speed(upload_speed)))
+            self.conn_table.setItem(row_number, 4, QTableWidgetItem(status))
+
+        # Áp dụng lại bộ lọc tìm kiếm sau khi tải lại
+        self.filter_connections()
+
+        # Khôi phục lại trạng thái cuộn và lựa chọn
+        scrollbar.setValue(scroll_position)
+        if selected_rows:
+            first_selected_row = selected_rows[0]
+            self.conn_table.selectRow(first_selected_row)
+
     def load_history_data(self):
 
         self.table.setRowCount(0)
@@ -186,7 +266,6 @@ class AppWidget(QWidget):
             data = database.lay_lich_su(self.current_email)
             for row_number, row_data in enumerate(data):
                 self.table.insertRow(row_number)
-                # Cấu trúc từ DB: (id, thoi_gian, ping, download, upload, isp, ip)
                 display_data = [
                     row_data[0],
                     row_data[1],
@@ -200,7 +279,6 @@ class AppWidget(QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     self.table.setItem(row_number, column_number, item)
         else:
-            #Chế độ khách: Lấy từ danh sách tạm
             temp_data_reversed = reversed(self.temp_history_ref)
             for row_number, row_data in enumerate(temp_data_reversed):
                 thoi_gian = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -235,5 +313,5 @@ class AppWidget(QWidget):
         self.lbl_user.setVisible(False)
         self.btn_logout.setVisible(False)
         self.btn_show_login.setVisible(True)
-        # Tải lại bảng lịch sử (lúc này sẽ là lịch sử tạm)
+
         self.load_history_data()
