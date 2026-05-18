@@ -4,6 +4,9 @@ import time
 import socket
 import os
 import psutil
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Link tải file mẫu 50MB từ Cloudflare
 URL_DOWNLOAD = "https://speed.cloudflare.com/__down?bytes=50000000"
@@ -83,7 +86,7 @@ class BoXuLyTocDo:
             try:
                 if self.mode == "download":
                     # stream=True: Tải dòng chảy
-                    with session.get(URL_DOWNLOAD, stream=True, timeout=TIMEOUT_CONFIG) as response:
+                    with session.get(URL_DOWNLOAD, stream=True, timeout=TIMEOUT_CONFIG, verify=False) as response:
                         # Kiểm tra xem server có từ chối không (403/404/500)
                         if response.status_code != 200:
                             time.sleep(0.5)
@@ -95,7 +98,7 @@ class BoXuLyTocDo:
                                 with self.lock: self.tong_bytes += len(chunk)
                 else:
                     # Upload
-                    session.post(URL_UPLOAD, data=self.data_upload, timeout=TIMEOUT_CONFIG)
+                    session.post(URL_UPLOAD, data=self.data_upload, timeout=TIMEOUT_CONFIG, verify=False)
                     with self.lock: self.tong_bytes += len(self.data_upload)
 
             except requests.exceptions.ReadTimeout:
@@ -174,7 +177,17 @@ def lay_ping():
     """Đo 3 lần lấy số nhỏ nhất"""
     global co_lenh_huy
     ket_qua_tot_nhat = 9999
-    host, port = SERVERS_VIETNAM[0]
+    
+    # Tìm server khả dụng trong danh sách
+    server_chon = None
+    for host, port in SERVERS_VIETNAM:
+        if ping_tcp(host, port) < 9999:
+            server_chon = (host, port)
+            break
+    
+    if not server_chon: return None
+    
+    host, port = server_chon
     for _ in range(3):
         if co_lenh_huy: return None
         p = ping_tcp(host, port)
