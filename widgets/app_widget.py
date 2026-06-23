@@ -1,6 +1,6 @@
 import datetime
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QPushButton, QFrame, QProgressBar, QTabWidget, QTableWidget,
+                             QPushButton, QFrame, QProgressBar, QTabWidget, QTableWidget, QComboBox,
                              QTableWidgetItem, QHeaderView, QAbstractItemView, QLineEdit)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QCursor
@@ -91,6 +91,18 @@ class AppWidget(QWidget):
         self.lbl_ip_loc.setStyleSheet("color: #aaaaaa;")
         self.lbl_ip_loc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lbl_ip_loc)
+
+        # --- Thêm lựa chọn Server ---
+        server_layout = QHBoxLayout()
+        server_layout.setContentsMargins(50, 10, 50, 0) # Thêm padding trái/phải
+        server_layout.addWidget(QLabel("Server đo:"))
+        self.combo_servers = QComboBox()
+        self.combo_servers.setStyleSheet("padding: 5px;")
+        server_layout.addWidget(self.combo_servers)
+        layout.addLayout(server_layout)
+        # Lấy danh sách server từ core và thêm vào combobox
+        for server_name in core.SERVERS:
+            self.combo_servers.addItem(server_name)
 
         #Ping
         self.card_ping = QFrame()

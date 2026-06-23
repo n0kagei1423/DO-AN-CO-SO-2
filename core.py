@@ -8,24 +8,41 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Link tải file mẫu 50MB từ Cloudflare
-URL_DOWNLOAD = "https://speed.cloudflare.com/__down?bytes=50000000"
-URL_UPLOAD = "https://speed.cloudflare.com/__up"
-SERVERS_VIETNAM = [("vnexpress.net", 443), ("dantri.com.vn", 443)]
 URL_IP_INFO = "http://ip-api.com/json/"
 
+# Danh sách server để lựa chọn
+SERVERS = {
+    "Cloudflare (Tự động)": {
+        "download": "https://speed.cloudflare.com/__down?bytes=50000000",
+        "upload": "https://speed.cloudflare.com/__up",
+        "ping_host": "1.1.1.1",
+        "ping_port": 443
+    },
+    "Google (Global)": {
+        "download": "https://speed.cloudflare.com/__down?bytes=50000000",
+        "upload": "https://speed.cloudflare.com/__up",
+        "ping_host": "8.8.8.8",
+        "ping_port": 53 # Port DNS
+    },
+    "VNPT (Việt Nam)": {
+        "download": "https://speed.cloudflare.com/__down?bytes=50000000",
+        "upload": "https://speed.cloudflare.com/__up",
+        "ping_host": "vnpt.vn",
+        "ping_port": 443
+    }
+}
 # Cấu hình kỹ thuật: Chạy 4 luồng song song trong 10 giây
 SO_LUONG_LUONG = 4
 THOI_GIAN_TEST = 10 
 
-core_hien_tai = None  
-co_lenh_huy = False   
+# Biến này sẽ được quản lý bởi MainWindow thay vì là global state
+cancel_event = threading.Event()
 
 def lay_thong_tin_ip():
     try:
-        # Thêm header để yêu cầu server không trả lại kết quả cũ
         headers = {'Cache-Control': 'no-cache'}
         response = requests.get(URL_IP_INFO, headers=headers, timeout=3)
+        response.raise_for_status() # Kiểm tra lỗi HTTP
         data = response.json()
         return {
             "ip": data.get('query', '---'), 
@@ -33,34 +50,26 @@ def lay_thong_tin_ip():
             "country": data.get('country', '---'), 
             "isp": data.get('isp', '---')
         }
-    except:
+    except (requests.exceptions.RequestException, ValueError): # Bắt lỗi cụ thể
         return None
 
 def kich_hoat_lenh_huy():
-    global co_lenh_huy, core_hien_tai
-    co_lenh_huy = True
-    if core_hien_tai:
-        core_hien_tai.dung_lai_ngay()
+    cancel_event.set()
 
 def reset_trang_thai():
-    global co_lenh_huy, core_hien_tai
-    co_lenh_huy = False
-    core_hien_tai = None
+    cancel_event.clear()
 
 class BoXuLyTocDo:
-    def __init__(self, mode="download"):
+    def __init__(self, mode="download", url=None):
         self.tong_bytes = 0
-        self.dang_chay = False
         self.lock = threading.Lock()
         self.mode = mode
+        self.url = url
         
         # Nếu là upload, tạo trước 1 cục dữ liệu rác 1MB trong RAM
         # os.urandom tạo ra byte ngẫu nhiên để modem không thể nén dữ liệu (đo chính xác hơn)
         if mode == "upload":
             self.data_upload = os.urandom(1024 * 1024) 
-
-    def dung_lai_ngay(self):
-        self.dang_chay = False
 
     def worker(self):
         #CẤU HÌNH HEADERS ĐỂ GIẢ LẬP TRÌNH DUYỆT (Tránh bị Cloudflare chặn/lơ)
@@ -82,23 +91,23 @@ class BoXuLyTocDo:
         start_time = time.time()
         TIMEOUT_CONFIG = (5.0, 20.0) 
 
-        while self.dang_chay and (time.time() - start_time < THOI_GIAN_TEST):
+        while not cancel_event.is_set() and (time.time() - start_time < THOI_GIAN_TEST):
             try:
                 if self.mode == "download":
                     # stream=True: Tải dòng chảy
-                    with session.get(URL_DOWNLOAD, stream=True, timeout=TIMEOUT_CONFIG, verify=False) as response:
+                    with session.get(self.url, stream=True, timeout=TIMEOUT_CONFIG, verify=False) as response:
                         # Kiểm tra xem server có từ chối không (403/404/500)
                         if response.status_code != 200:
                             time.sleep(0.5)
                             continue
 
                         for chunk in response.iter_content(chunk_size=102400):
-                            if not self.dang_chay: return 
+                            if cancel_event.is_set(): return 
                             if chunk:
                                 with self.lock: self.tong_bytes += len(chunk)
                 else:
                     # Upload
-                    session.post(URL_UPLOAD, data=self.data_upload, timeout=TIMEOUT_CONFIG, verify=False)
+                    session.post(self.url, data=self.data_upload, timeout=TIMEOUT_CONFIG, verify=False)
                     with self.lock: self.tong_bytes += len(self.data_upload)
 
             except requests.exceptions.ReadTimeout:
@@ -112,7 +121,6 @@ class BoXuLyTocDo:
 
     def bat_dau(self, callback_update=None):
         self.tong_bytes = 0
-        self.dang_chay = True
         danh_sach_luong = []
 
         # Tạo và khởi động 4 threads
@@ -128,7 +136,7 @@ class BoXuLyTocDo:
         peak_display_speed = 0
 
         while time.time() - start_time < THOI_GIAN_TEST:
-            if not self.dang_chay: break
+            if cancel_event.is_set(): break
 
             time.sleep(0.25)
             now = time.time()
@@ -154,11 +162,10 @@ class BoXuLyTocDo:
             last_time = now
             last_bytes = self.tong_bytes
 
-        self.dang_chay = False
         for t in danh_sach_luong:
             t.join()
 
-        if co_lenh_huy: return None
+        if cancel_event.is_set(): return None
         return round(peak_display_speed, 2)
 
 def ping_tcp(host, port):
@@ -173,37 +180,30 @@ def ping_tcp(host, port):
         print(f"Lỗi Ping {host}: {e}")
         return 9999
 
-def lay_ping():
+def lay_ping(host, port):
     """Đo 3 lần lấy số nhỏ nhất"""
-    global co_lenh_huy
     ket_qua_tot_nhat = 9999
     
-    # Tìm server khả dụng trong danh sách
-    server_chon = None
-    for host, port in SERVERS_VIETNAM:
-        if ping_tcp(host, port) < 9999:
-            server_chon = (host, port)
-            break
-    
-    if not server_chon: return None
-    
-    host, port = server_chon
+    if not host or not port:
+        return None
+
+    if ping_tcp(host, port) >= 9999:
+        return None
+
     for _ in range(3):
-        if co_lenh_huy: return None
+        if cancel_event.is_set(): return None
         p = ping_tcp(host, port)
         if p < ket_qua_tot_nhat: ket_qua_tot_nhat = p
         time.sleep(0.1)
     return round(ket_qua_tot_nhat, 0) if ket_qua_tot_nhat < 9999 else None
 
-def do_download(callback_func=None):
-    global core_hien_tai
-    core_hien_tai = BoXuLyTocDo(mode="download")
-    return core_hien_tai.bat_dau(callback_update=callback_func)
+def do_download(callback_func=None, url=None):
+    processor = BoXuLyTocDo(mode="download", url=url)
+    return processor.bat_dau(callback_update=callback_func)
 
-def do_upload(callback_func=None):
-    global core_hien_tai
-    core_hien_tai = BoXuLyTocDo(mode="upload")
-    return core_hien_tai.bat_dau(callback_update=callback_func)
+def do_upload(callback_func=None, url=None):
+    processor = BoXuLyTocDo(mode="upload", url=url)
+    return processor.bat_dau(callback_update=callback_func)
 
 class GiamSatHeThong:
     def __init__(self):

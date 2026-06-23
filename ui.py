@@ -155,6 +155,7 @@ class MainWindow(QMainWindow):
         self.app_screen.btn_action.setStyleSheet(STYLESHEET)
         self.app_screen.btn_show_login.setEnabled(False)
         self.app_screen.btn_logout.setEnabled(False)
+        self.app_screen.combo_servers.setEnabled(False)
         
         # Reset UI
         self.app_screen.val_ping.setText("--- ms")
@@ -179,12 +180,23 @@ class MainWindow(QMainWindow):
 
     def worker_speedtest(self):
         try:
+            # Lấy thông tin server được chọn từ ComboBox
+            selected_server_name = self.app_screen.combo_servers.currentText()
+            server_details = logic_mang.SERVERS.get(selected_server_name)
+
+            if not server_details:
+                print(f"Lỗi: Không tìm thấy thông tin cho server '{selected_server_name}'")
+                # Có thể hiện thông báo lỗi ở đây
+                self.sig_finish.emit()
+                return
+
             # 1. Ping
             if not self.check_continue(): return
             self.sig_update_progress.emit(5)
             
-            ping = logic_mang.lay_ping()
-            if ping: 
+            ping = logic_mang.lay_ping(host=server_details['ping_host'], 
+                                       port=server_details['ping_port'])
+            if ping is not None: 
                 self.last_result['ping'] = f"{ping} ms"
                 self.sig_update_ping.emit(f"{ping} ms")
             else:
@@ -203,7 +215,8 @@ class MainWindow(QMainWindow):
                     current_prog_down += 1
                     self.sig_update_progress.emit(current_prog_down)
             
-            final_down = logic_mang.do_download(callback_func=cb_down)
+            final_down = logic_mang.do_download(callback_func=cb_down, 
+                                                url=server_details['download'])
             
             #gán bằng 0.0 để không crash
             if final_down is None:
@@ -223,7 +236,8 @@ class MainWindow(QMainWindow):
                     current_prog_up += 1
                     self.sig_update_progress.emit(current_prog_up)
             
-            final_up = logic_mang.do_upload(callback_func=cb_up)
+            final_up = logic_mang.do_upload(callback_func=cb_up,
+                                            url=server_details['upload'])
             
             if final_up is None:
                 final_up = 0.0
@@ -233,7 +247,7 @@ class MainWindow(QMainWindow):
 
             # 4. Lưu Database
             self.sig_update_progress.emit(98)
-            if not logic_mang.co_lenh_huy:
+            if not logic_mang.cancel_event.is_set():
                 user_email = self.app_screen.current_email
                 result_to_save = {
                     'ping': self.last_result.get('ping', '---'),
@@ -273,7 +287,7 @@ class MainWindow(QMainWindow):
         
         self.app_screen.btn_action.setEnabled(True)
         
-        if logic_mang.co_lenh_huy:
+        if logic_mang.cancel_event.is_set():
             self.app_screen.lbl_status.setText("Đã hủy đo")
             self.app_screen.lbl_status.setStyleSheet("color: red;")
             self.app_screen.progress.setValue(0)
@@ -286,9 +300,10 @@ class MainWindow(QMainWindow):
         
         self.app_screen.btn_show_login.setEnabled(True)
         self.app_screen.btn_logout.setEnabled(True)
+        self.app_screen.combo_servers.setEnabled(True)
 
     def check_continue(self):
-        if logic_mang.co_lenh_huy:
+        if logic_mang.cancel_event.is_set():
             self.sig_finish.emit()
             return False
         return True

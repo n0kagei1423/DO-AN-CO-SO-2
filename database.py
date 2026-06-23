@@ -1,9 +1,12 @@
 import sqlite3
 import datetime
 import os
+import hashlib
 
 def lay_ten_db(email):
-    return f"{email}.db"
+    # Hash email để tạo tên file an toàn hơn, tránh lộ thông tin
+    email_hash = hashlib.sha256(email.encode('utf-8')).hexdigest()
+    return f"{email_hash}.db"
 
 def khoi_tao_db(email):
     db_name = f'./database/{lay_ten_db(email)}'
